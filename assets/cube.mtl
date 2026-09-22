@@ -1,0 +1,24 @@
+# Material colors for the OBJ demonstration.
+newmtl RedPanel
+Kd 1.0 0.35 0.35
+map_Kd basi6a08.png
+
+newmtl BluePanel
+Kd 0.35 0.55 1.0
+map_Kd basn6a08.png
+
+newmtl GreenPanel
+Kd 0.35 1.0 0.45
+map_Kd basi4a08.png
+
+newmtl GoldPanel
+Kd 1.0 0.75 0.25
+map_Kd basi6a08.png
+
+newmtl WhitePanel
+Kd 1.0 1.0 1.0
+map_Kd basn6a08.png
+
+newmtl PurplePanel
+Kd 0.75 0.35 1.0
+map_Kd basi4a08.png
