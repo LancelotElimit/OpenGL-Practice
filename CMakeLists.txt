@@ -30,6 +30,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# tinygltf: parses glTF 2.0 scenes, skins, and animations.
+FetchContent_Declare(
+    tinygltf
+    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
+    GIT_TAG v2.9.7
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(tinygltf)
+if(NOT tinygltf_POPULATED)
+    FetchContent_Populate(tinygltf)
+endif()
+
 # stb_image: loads PNG/JPG/PPM image files into CPU memory.
 FetchContent_Declare(
     stb_image
@@ -85,6 +97,39 @@ if(NOT EXISTS "${TEST_TEXTURE_PATH_3}")
     )
 endif()
 
+# Small CC0 reference assets from Poly Haven for the real PBR pipeline.
+set(POLY_HAVEN_ASSETS
+    "sunset_jhbcentral_1k.hdr|https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/sunset_jhbcentral_1k.hdr"
+    "concrete_diff_1k.jpg|https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete/concrete_diff_1k.jpg"
+    "concrete_nor_gl_1k.jpg|https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete/concrete_nor_gl_1k.jpg"
+    "concrete_rough_1k.jpg|https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete/concrete_rough_1k.jpg"
+    "concrete_ao_1k.jpg|https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete/concrete_ao_1k.jpg"
+)
+foreach(ASSET_ENTRY IN LISTS POLY_HAVEN_ASSETS)
+    string(REPLACE "|" ";" ASSET_FIELDS "${ASSET_ENTRY}")
+    list(GET ASSET_FIELDS 0 ASSET_NAME)
+    list(GET ASSET_FIELDS 1 ASSET_URL)
+    set(ASSET_PATH "${CMAKE_SOURCE_DIR}/assets/${ASSET_NAME}")
+    if(NOT EXISTS "${ASSET_PATH}")
+        file(DOWNLOAD
+            "${ASSET_URL}"
+            "${ASSET_PATH}"
+            SHOW_PROGRESS
+            TLS_VERIFY ON
+        )
+    endif()
+endforeach()
+
+set(SIMPLE_SKIN_PATH "${CMAKE_SOURCE_DIR}/assets/SimpleSkin.gltf")
+if(NOT EXISTS "${SIMPLE_SKIN_PATH}")
+    file(DOWNLOAD
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/SimpleSkin/glTF-Embedded/SimpleSkin.gltf"
+        "${SIMPLE_SKIN_PATH}"
+        SHOW_PROGRESS
+        TLS_VERIFY ON
+    )
+endif()
+
 # GLAD: loads modern OpenGL functions after GLFW creates the context.
 FetchContent_Declare(
     glad
@@ -101,6 +146,61 @@ endif()
 
 add_executable(OpenGLPractice
     src/main_clean.cpp
+    src/AssetPaths.cpp
+    src/BlurBuffer.cpp
+    src/Camera.cpp
+    src/EnvironmentIBL.cpp
+    src/Frustum.cpp
+    src/GltfAnimatedModel.cpp
+    src/Material.cpp
+    src/Mesh.cpp
+    src/Model.cpp
+    src/PbrMaterial.cpp
+    src/RenderTarget.cpp
+    src/Renderer.cpp
+    src/Scene.cpp
+    src/ShaderProgram.cpp
+    src/ShadowMap.cpp
+    src/Texture2D.cpp
+    src/TextureCache.cpp
+    src/Window.cpp
+)
+
+set(SHADER_FILES
+    shaders/main.vert
+    shaders/main.frag
+    shaders/light_marker.vert
+    shaders/light_marker.frag
+    shaders/depth.vert
+    shaders/depth.frag
+    shaders/debug.vert
+    shaders/debug.frag
+    shaders/postprocess.vert
+    shaders/postprocess.frag
+    shaders/bright_pass.frag
+    shaders/blur.frag
+    shaders/cubemap_capture.vert
+    shaders/procedural_environment.frag
+    shaders/equirectangular_to_cubemap.frag
+    shaders/irradiance_convolution.frag
+    shaders/prefilter_environment.frag
+    shaders/brdf_lut.vert
+    shaders/brdf_lut.frag
+    shaders/skybox.vert
+    shaders/skybox.frag
+    shaders/skinned.vert
+    shaders/skinned.frag
+)
+
+target_sources(OpenGLPractice PRIVATE ${SHADER_FILES})
+set_source_files_properties(${SHADER_FILES} PROPERTIES HEADER_FILE_ONLY TRUE)
+
+add_custom_command(
+    TARGET OpenGLPractice POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/shaders"
+        "$<TARGET_FILE_DIR:OpenGLPractice>/shaders"
+    COMMENT "Copying GLSL shader files next to the executable"
 )
 
 target_link_libraries(OpenGLPractice
@@ -113,6 +213,8 @@ target_link_libraries(OpenGLPractice
 
 target_include_directories(OpenGLPractice
     PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
         "${stb_image_SOURCE_DIR}"
         "${tinyobjloader_SOURCE_DIR}"
+        "${tinygltf_SOURCE_DIR}"
 )
