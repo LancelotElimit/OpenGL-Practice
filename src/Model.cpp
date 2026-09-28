@@ -33,7 +33,10 @@ struct VertexKeyHash {
 
 } // namespace
 
-bool Model::load(const std::filesystem::path& path) {
+bool Model::load(
+    const std::filesystem::path& path,
+    const std::string& excludedObjectName
+) {
     tinyobj::attrib_t attributes;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
@@ -77,7 +80,11 @@ bool Model::load(const std::filesystem::path& path) {
         uniqueVertices;
 
     for (const auto& shape : shapes) {
+        if (shape.name == excludedObjectName && !excludedObjectName.empty()) {
+            continue;
+        }
         std::size_t indexOffset = 0;
+        int previousMaterialIndex = -2;
         for (std::size_t face = 0;
              face < shape.mesh.num_face_vertices.size();
              ++face) {
@@ -165,9 +172,22 @@ bool Model::load(const std::filesystem::path& path) {
                 );
                 part.diffuseTextureName = material.diffuse_texname;
             }
-            parts_.push_back(part);
+            // Consecutive faces with the same material share one draw call.
+            // Exported OBJ files often contain thousands of separate faces.
+            if (!parts_.empty() && materialIndex == previousMaterialIndex) {
+                parts_.back().indexCount += part.indexCount;
+            } else {
+                parts_.push_back(part);
+            }
+            previousMaterialIndex = materialIndex;
             indexOffset += faceVertexCount;
         }
+    }
+
+    if (indices_.empty()) {
+        std::cerr << "OBJ has no drawable faces after filtering: "
+                  << path << '\n';
+        return false;
     }
 
     const std::size_t vertexCount =

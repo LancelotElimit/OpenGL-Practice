@@ -2,8 +2,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-Camera::Camera(glm::vec3 position)
-    : position_(position) {
+Camera::Camera(glm::vec3 position, float yaw, float pitch)
+    : position_(position), yaw_(yaw), pitch_(pitch) {
+    updateFrontFromAngles();
 }
 
 void Camera::processKeyboard(GLFWwindow* window, float deltaTime) {

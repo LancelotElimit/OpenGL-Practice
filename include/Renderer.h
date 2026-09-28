@@ -32,6 +32,7 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     bool valid() const;
+    void setShowOnlyImportedModel(bool enabled);
     void render(
         const Scene& scene,
         const Camera& camera,
@@ -72,6 +73,8 @@ private:
     ShadowCubeMap pointShadowMap_;
     RenderTarget sceneTarget_;
     BlurBuffer blurBuffer_;
+    bool showOnlyImportedModel_ = false;
+    bool showAnimatedModel_ = false;
     bool valid_ = false;
 
     GLint transformLocation_ = -1;

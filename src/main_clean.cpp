@@ -14,6 +14,7 @@
 #include "Window.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -35,9 +36,8 @@ int main() {
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << '\n';
 
     const std::filesystem::path shaderDirectory = findAssetPath("shaders");
-    const std::filesystem::path modelPath = findAssetPath("assets/cube.obj");
-    const std::filesystem::path texturePath = findAssetPath(
-        "assets/basi6a08.png"
+    const std::filesystem::path modelPath = findAssetPath(
+        "assets/my_model/Mouse-5079f33c/obj/mouse_5.obj"
     );
     const std::filesystem::path environmentPath = findAssetPath(
         "assets/sunset_jhbcentral_1k.hdr"
@@ -45,13 +45,14 @@ int main() {
     const std::filesystem::path animatedModelPath = findAssetPath(
         "assets/SimpleSkin.gltf"
     );
-    if (shaderDirectory.empty() || modelPath.empty() || texturePath.empty()) {
+    if (shaderDirectory.empty() || modelPath.empty()) {
         std::cerr << "Could not find the shaders or required assets.\n";
         return 1;
     }
 
     Model model;
-    if (!model.load(modelPath)) {
+    // The exported OBJ also contains a huge decorative Plane object.
+    if (!model.load(modelPath, "Plane")) {
         return 1;
     }
     std::cout << "Model geometry: "
@@ -118,9 +119,8 @@ int main() {
     );
 
     Texture2D fallbackTexture;
-    if (!fallbackTexture.loadRGBA(texturePath, true)) {
-        return 1;
-    }
+    const unsigned char whitePixel[] = {255, 255, 255, 255};
+    fallbackTexture.createRGBA(1, 1, whitePixel);
 
     TextureCache textureCache;
     MaterialLibrary materialLibrary;
@@ -142,15 +142,29 @@ int main() {
               << textureCache.size()
               << " unique file textures\n";
 
-    const unsigned char normalPixels[] = {
-        128, 128, 255, 255,    205, 128, 220, 255,
-        128, 205, 220, 255,     75,  75, 205, 255
-    };
+    const unsigned char normalPixels[] = {128, 128, 255, 255};
     Texture2D normalTexture;
-    normalTexture.createRGBA(2, 2, normalPixels);
+    normalTexture.createRGBA(1, 1, normalPixels);
 
-    Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+    Camera camera(glm::vec3(0.0f, 1.5f, 4.0f), -90.0f, -20.0f);
     Scene scene;
+    const float targetModelRadius = 1.7f;
+    const float modelScale = targetModelRadius
+        / std::max(model.boundsRadius(), 0.001f);
+    float lowestModelY = model.boundsCenter().y;
+    for (std::size_t index = 1; index < model.vertices().size();
+         index += Model::VertexStrideFloats) {
+        lowestModelY = std::min(lowestModelY, model.vertices()[index]);
+    }
+    const glm::vec3 modelOffset(
+        -model.boundsCenter().x * modelScale,
+        -0.5f - lowestModelY * modelScale,
+        -model.boundsCenter().z * modelScale
+    );
+    const glm::mat4 modelImportTransform =
+        glm::translate(glm::mat4(1.0f), modelOffset)
+        * glm::scale(glm::mat4(1.0f), glm::vec3(modelScale));
+    scene.setModelImportTransform(modelImportTransform);
     Renderer renderer(
         shaderDirectory,
         environmentPath,
@@ -159,6 +173,7 @@ int main() {
     if (!renderer.valid()) {
         return 1;
     }
+    renderer.setShowOnlyImportedModel(false);
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     float lastFrameTime = 0.0f;

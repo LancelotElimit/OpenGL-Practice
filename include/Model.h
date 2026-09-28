@@ -22,7 +22,10 @@ class Model {
 public:
     static constexpr std::size_t VertexStrideFloats = 12;
 
-    bool load(const std::filesystem::path& path);
+    bool load(
+        const std::filesystem::path& path,
+        const std::string& excludedObjectName = {}
+    );
 
     const std::vector<float>& vertices() const;
     const std::vector<std::uint32_t>& indices() const;

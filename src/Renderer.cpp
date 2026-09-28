@@ -142,6 +142,10 @@ bool Renderer::valid() const {
     return valid_;
 }
 
+void Renderer::setShowOnlyImportedModel(bool enabled) {
+    showOnlyImportedModel_ = enabled;
+}
+
 void Renderer::configureStaticUniforms() {
     mainProgram_.use();
     glUniform1i(mainProgram_.uniform("uTexture"), 0);
@@ -279,13 +283,15 @@ void Renderer::render(
     glUniform1i(depthUseInstancingLocation_, GL_TRUE);
     modelMesh.drawInstanced();
     glUniform1i(depthUseInstancingLocation_, GL_FALSE);
-    glUniformMatrix4fv(
-        depthModelLocation_,
-        1,
-        GL_FALSE,
-        glm::value_ptr(floorTransform)
-    );
-    floorMesh.draw();
+    if (!showOnlyImportedModel_) {
+        glUniformMatrix4fv(
+            depthModelLocation_,
+            1,
+            GL_FALSE,
+            glm::value_ptr(floorTransform)
+        );
+        floorMesh.draw();
+    }
     spotlightShadowMap_.endWrite();
 
     const glm::mat4 pointProjection = glm::perspective(
@@ -330,13 +336,15 @@ void Renderer::render(
         glUniform1i(depthUseInstancingLocation_, GL_TRUE);
         modelMesh.drawInstanced();
         glUniform1i(depthUseInstancingLocation_, GL_FALSE);
-        glUniformMatrix4fv(
-            depthModelLocation_,
-            1,
-            GL_FALSE,
-            glm::value_ptr(floorTransform)
-        );
-        floorMesh.draw();
+        if (!showOnlyImportedModel_) {
+            glUniformMatrix4fv(
+                depthModelLocation_,
+                1,
+                GL_FALSE,
+                glm::value_ptr(floorTransform)
+            );
+            floorMesh.draw();
+        }
     }
 
     pointShadowMap_.endWrite();
@@ -416,32 +424,34 @@ void Renderer::render(
     }
     glUniform1i(useInstancingLocation_, GL_FALSE);
 
-    glUniformMatrix4fv(
-        modelLocation_,
-        1,
-        GL_FALSE,
-        glm::value_ptr(floorTransform)
-    );
-    glUniform3f(materialColorLocation_, 1.0f, 1.0f, 1.0f);
-    glUniform1f(metallicLocation_, 0.0f);
-    glUniform1f(roughnessLocation_, 0.78f);
-    glUniform1f(aoLocation_, 1.0f);
-    glUniform1i(
-        usePbrMapsLocation_,
-        floorMaterial.valid() ? GL_TRUE : GL_FALSE
-    );
-    glUniform1f(textureScaleLocation_, 1.0f);
-    if (floorMaterial.valid()) {
-        floorMaterial.bind(0, 3, 7, 8);
-    } else {
-        fallbackTexture.bind(0);
-        normalTexture.bind(3);
+    if (!showOnlyImportedModel_) {
+        glUniformMatrix4fv(
+            modelLocation_,
+            1,
+            GL_FALSE,
+            glm::value_ptr(floorTransform)
+        );
+        glUniform3f(materialColorLocation_, 1.0f, 1.0f, 1.0f);
+        glUniform1f(metallicLocation_, 0.0f);
+        glUniform1f(roughnessLocation_, 0.78f);
+        glUniform1f(aoLocation_, 1.0f);
+        glUniform1i(
+            usePbrMapsLocation_,
+            floorMaterial.valid() ? GL_TRUE : GL_FALSE
+        );
+        glUniform1f(textureScaleLocation_, 1.0f);
+        if (floorMaterial.valid()) {
+            floorMaterial.bind(0, 3, 7, 8);
+        } else {
+            fallbackTexture.bind(0);
+            normalTexture.bind(3);
+        }
+        floorMesh.draw();
     }
-    floorMesh.draw();
 
     // The glTF joints are evaluated on the CPU; the vertex skinning itself
     // happens in skinned.vert on the GPU.
-    if (animatedModelVisible) {
+    if (showAnimatedModel_ && animatedModelVisible) {
         animatedModel_.draw(
             viewProjection,
             animatedTransform,
@@ -450,31 +460,11 @@ void Renderer::render(
         );
     }
 
-    environmentIbl_.renderSkybox(view, projection);
+    if (!showOnlyImportedModel_) {
+        environmentIbl_.renderSkybox(view, projection);
+    }
 
-    glDisable(GL_DEPTH_TEST);
-    lightProgram_.use();
-    glUniformMatrix4fv(
-        lightTransformLocation_,
-        1,
-        GL_FALSE,
-        glm::value_ptr(viewProjection)
-    );
-    glUniform3fv(
-        markerLightPositionLocation_,
-        1,
-        glm::value_ptr(lightPosition)
-    );
-    glUniform3f(markerColorLocation_, 4.0f, 3.4f, 0.8f);
-    glDrawArrays(GL_POINTS, 0, 1);
-    glUniform3fv(
-        markerLightPositionLocation_,
-        1,
-        glm::value_ptr(lightPosition2)
-    );
-    glUniform3f(markerColorLocation_, 0.5f, 1.0f, 4.0f);
-    glDrawArrays(GL_POINTS, 0, 1);
-    glEnable(GL_DEPTH_TEST);
+    // Light markers are intentionally hidden in the imported-model test scene.
 
     if (showShadowMap) {
         glDisable(GL_DEPTH_TEST);
