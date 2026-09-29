@@ -3,6 +3,7 @@
 #include <glad/gl.h>
 
 #include <filesystem>
+#include <initializer_list>
 
 // Owns one linked vertex/fragment shader program.
 // The class hides shader compilation and uniform lookup from the renderer.
@@ -18,6 +19,12 @@ public:
         const std::filesystem::path& vertexPath,
         const std::filesystem::path& fragmentPath,
         const char* debugName
+    );
+    ShaderProgram(
+        const std::filesystem::path& vertexPath,
+        const std::filesystem::path& fragmentPath,
+        const char* debugName,
+        std::initializer_list<const char*> transformFeedbackVaryings
     );
 
     ~ShaderProgram();
@@ -38,7 +45,8 @@ private:
     void build(
         const char* vertexSource,
         const char* fragmentSource,
-        const char* debugName
+        const char* debugName,
+        std::initializer_list<const char*> transformFeedbackVaryings = {}
     );
 
     GLuint program_ = 0;

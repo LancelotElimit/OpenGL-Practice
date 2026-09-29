@@ -271,8 +271,11 @@ bool GltfAnimatedModel::load(const std::filesystem::path& modelPath) {
     }
     boneMatrices_.resize(jointNodes_.size(), glm::mat4(1.0f));
 
-    if (!model.animations.empty()) {
-        const auto& animation = model.animations.front();
+    for (std::size_t animationIndex = 0; animationIndex < model.animations.size(); ++animationIndex) {
+        const auto& animation = model.animations[animationIndex];
+        AnimationClip clip;
+        clip.name = animation.name.empty()
+            ? "Clip " + std::to_string(animationIndex + 1) : animation.name;
         for (const auto& channel : animation.channels) {
             const auto& sampler = animation.samplers[channel.sampler];
             AnimationChannel result;
@@ -289,8 +292,8 @@ bool GltfAnimatedModel::load(const std::filesystem::path& modelPath) {
                     accessorData(model, inputAccessor)
                         + index * accessorStride(model, inputAccessor)
                 );
-                animationDuration_ = std::max(
-                    animationDuration_, result.times[index]
+                clip.duration = std::max(
+                    clip.duration, result.times[index]
                 );
             }
 
@@ -311,8 +314,9 @@ bool GltfAnimatedModel::load(const std::filesystem::path& modelPath) {
                     result.values[index][component] = values[component];
                 }
             }
-            animationChannels_.push_back(std::move(result));
+            clip.channels.push_back(std::move(result));
         }
+        clips_.push_back(std::move(clip));
     }
 
     glGenVertexArrays(1, &vao_);
@@ -354,17 +358,22 @@ bool GltfAnimatedModel::load(const std::filesystem::path& modelPath) {
     update(0.0f);
     std::cout << "glTF skin loaded: " << vertices.size()
               << " vertices, " << jointNodes_.size()
-              << " joints, " << animationChannels_.size()
-              << " animation channels\n";
+              << " joints, " << clips_.size()
+              << " animation clips\n";
     return true;
 }
 
 void GltfAnimatedModel::update(float timeSeconds) {
+    const float dt = lastUpdateTime_ < 0.0f ? 0.0f
+        : glm::clamp(timeSeconds - lastUpdateTime_, 0.0f, 0.1f);
+    lastUpdateTime_ = timeSeconds;
+    if (playing_) playbackTime_ += dt * playbackSpeed_;
     currentPoses_ = basePoses_;
-    const float animationTime = animationDuration_ > 0.0f
-        ? std::fmod(timeSeconds, animationDuration_)
+    const AnimationClip* clip = clips_.empty() ? nullptr : &clips_[clipIndex_];
+    const float animationTime = clip && clip->duration > 0.0f
+        ? std::fmod(playbackTime_, clip->duration)
         : 0.0f;
-    for (const AnimationChannel& channel : animationChannels_) {
+    if (clip) for (const AnimationChannel& channel : clip->channels) {
         if (channel.times.empty() || channel.node < 0) {
             continue;
         }
@@ -386,21 +395,36 @@ void GltfAnimatedModel::update(float timeSeconds) {
         }
         factor = glm::clamp(factor, 0.0f, 1.0f);
 
+        const bool cubic = channel.interpolation == "CUBICSPLINE"
+            && channel.values.size() == channel.times.size() * 3;
+        auto sample = [&](std::size_t key) -> glm::vec4 {
+            return channel.values[cubic ? key * 3 + 1 : key];
+        };
+        glm::vec4 interpolated;
+        if (cubic && next != previous) {
+            const float t = factor, t2 = t * t, t3 = t2 * t;
+            const glm::vec4 p0 = sample(previous), p1 = sample(next);
+            const glm::vec4 m0 = channel.values[previous * 3 + 2] * interval;
+            const glm::vec4 m1 = channel.values[next * 3] * interval;
+            interpolated = (2*t3 - 3*t2 + 1)*p0 + (t3 - 2*t2 + t)*m0
+                + (-2*t3 + 3*t2)*p1 + (t3 - t2)*m1;
+        } else {
+            interpolated = glm::mix(sample(previous), sample(next), factor);
+        }
+
         NodePose& pose = currentPoses_[channel.node];
         if (channel.path == "rotation") {
-            const glm::vec4 a = channel.values[previous];
-            const glm::vec4 b = channel.values[next];
-            pose.rotation = glm::normalize(glm::slerp(
-                glm::quat(a.w, a.x, a.y, a.z),
-                glm::quat(b.w, b.x, b.y, b.z),
-                factor
-            ));
+            if (cubic) {
+                pose.rotation = glm::normalize(glm::quat(
+                    interpolated.w, interpolated.x, interpolated.y, interpolated.z));
+            } else {
+                const glm::vec4 a = sample(previous), b = sample(next);
+                pose.rotation = glm::normalize(glm::slerp(
+                    glm::quat(a.w, a.x, a.y, a.z),
+                    glm::quat(b.w, b.x, b.y, b.z), factor));
+            }
         } else {
-            const glm::vec4 value = glm::mix(
-                channel.values[previous],
-                channel.values[next],
-                factor
-            );
+            const glm::vec4 value = interpolated;
             if (channel.path == "translation") {
                 pose.translation = glm::vec3(value);
             } else if (channel.path == "scale") {
@@ -408,8 +432,36 @@ void GltfAnimatedModel::update(float timeSeconds) {
             }
         }
     }
+    if (blendRemaining_ > 0.0f && previousClipPose_.size() == currentPoses_.size()) {
+        blendRemaining_ = std::max(0.0f, blendRemaining_ - dt);
+        const float weight = 1.0f - blendRemaining_ / 0.3f;
+        for (std::size_t i = 0; i < currentPoses_.size(); ++i) {
+            currentPoses_[i].translation = glm::mix(previousClipPose_[i].translation,
+                                                     currentPoses_[i].translation, weight);
+            currentPoses_[i].scale = glm::mix(previousClipPose_[i].scale,
+                                               currentPoses_[i].scale, weight);
+            currentPoses_[i].rotation = glm::normalize(glm::slerp(
+                previousClipPose_[i].rotation, currentPoses_[i].rotation, weight));
+        }
+    }
     updateGlobalTransforms();
 }
+
+std::size_t GltfAnimatedModel::animationCount() const { return clips_.size(); }
+const std::string& GltfAnimatedModel::animationName(std::size_t index) const {
+    static const std::string empty;
+    return index < clips_.size() ? clips_[index].name : empty;
+}
+int GltfAnimatedModel::animationIndex() const { return clipIndex_; }
+void GltfAnimatedModel::setAnimationIndex(int index) {
+    if (index < 0 || index >= static_cast<int>(clips_.size()) || index == clipIndex_) return;
+    previousClipPose_ = currentPoses_;
+    clipIndex_ = index;
+    playbackTime_ = 0.0f;
+    blendRemaining_ = 0.3f;
+}
+bool& GltfAnimatedModel::playing() { return playing_; }
+float& GltfAnimatedModel::playbackSpeed() { return playbackSpeed_; }
 
 glm::mat4 GltfAnimatedModel::nodeLocalMatrix(
     std::size_t nodeIndex
@@ -492,6 +544,10 @@ const glm::vec3& GltfAnimatedModel::boundsCenter() const {
 
 float GltfAnimatedModel::boundsRadius() const {
     return boundsRadius_;
+}
+
+std::size_t GltfAnimatedModel::triangleCount() const {
+    return static_cast<std::size_t>(indexCount_) / 3;
 }
 
 void GltfAnimatedModel::destroy() {

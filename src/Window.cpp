@@ -93,3 +93,7 @@ void Window::swapBuffers() const {
 void Window::pollEvents() const {
     glfwPollEvents();
 }
+
+void Window::setTitle(const std::string& title) const {
+    glfwSetWindowTitle(window_, title.c_str());
+}

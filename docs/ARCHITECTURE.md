@@ -19,6 +19,10 @@
   ├─ 点光源 Cubemap Shadow Pass
   ├─ 正常场景 Pass
   └─ 光源标记和调试视图
+  ↓
+把后处理结果写入 Scene View 纹理
+  ↓
+Dear ImGui docking 工作区显示场景与模块面板
 ```
 
 ## 模块职责
@@ -186,15 +190,17 @@ Albedo、OpenGL Normal、Roughness 与 AO 贴图。模型和地面共享同一 P
 
 ### RenderTarget
 
-`RenderTarget` 管理正常场景使用的离屏 framebuffer：
+`RenderTarget` 管理场景和编辑器视图使用的离屏 framebuffer：
 
-- 一张与窗口 framebuffer 同尺寸的 `RGBA16F` HDR 颜色纹理
+- 一张与目标视图同尺寸的 `RGBA16F` HDR 颜色纹理
+- 一张独立的 HDR 颜色复制纹理，供水面折射采样（避免读写反馈）
 - 一块 `GL_DEPTH24_STENCIL8` renderbuffer
+- 一张可采样的深度副本，供软粒子与水面厚度估计
 - 窗口尺寸变化时自动销毁并重建附件
 - 把最终颜色纹理绑定给全屏后处理 Shader
 
 正常场景不再直接写入窗口。`Renderer` 先把模型、地面、灯光标记和可选调试视图
-画进 `RenderTarget`，随后切回默认 framebuffer，用全屏四边形采样场景纹理。
+画进场景 `RenderTarget`，后处理写入另一份视图目标。编辑器把它作为 `Scene View` 的图像显示，最后 Dear ImGui 才绘制到默认 framebuffer。
 浮点附件允许光照值超过 1.0，最终由指数 Tone Mapping 根据 exposure 压回显示范围，
 再执行 Gamma 校正。`F2` 灰度作用于完成 Tone Mapping 后的最终颜色。
 
@@ -222,5 +228,4 @@ Visual Studio、命令行和直接运行 exe 时，当前工作目录可能不�
 模型、材质纹理、阴影资源、场景更新和多遍渲染已经分离，同源模型已经使用
 GPU Instancing、HDR/Bloom、Cook–Torrance PBR、天空盒和 split-sum IBL。
 真实 HDR/PBR 资产管线、glTF 骨骼动画、视锥剔除和共享纹理缓存已经接入。
-当前 glTF 示例专注 Skin/Animation 数据流，尚未覆盖完整 glTF PBR 材质、多个动画片段、
-动画混合以及蒙皮模型阴影；这些属于继续向生产级渲染器推进时的扩展点。
+静态 glTF 场景路径支持多节点/Primitive 和核心 Metallic-Roughness 材质；蒙皮路径支持多片段选择与渐变，但仍只读取第一个蒙皮 Primitive。两条路径尚未统一，多 Skin、Morph Target、扩展材质和蒙皮阴影仍是后续扩展。CPU 特效粒子有软交界和深度排序；GPU 特效粒子用 Transform Feedback 双缓冲更新并实例化渲染。`Fluid2D` 以速度/密度/压力/散度/障碍纹理执行平流和压力投影；独立 `FluidSystem` 是简化的三维 SPH 与 CPU 等值面实验，水面通过独立颜色/深度副本做屏幕空间折射、吸收、Fresnel 环境反射和边缘效果。默认关闭三维模拟，避免掩盖二维实验的性能。

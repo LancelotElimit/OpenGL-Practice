@@ -3,6 +3,7 @@
 #include "ShaderProgram.h"
 
 #include <filesystem>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,13 @@ public:
     ) const;
     const glm::vec3& boundsCenter() const;
     float boundsRadius() const;
+    std::size_t triangleCount() const;
+    std::size_t animationCount() const;
+    const std::string& animationName(std::size_t index) const;
+    int animationIndex() const;
+    void setAnimationIndex(int index);
+    bool& playing();
+    float& playbackSpeed();
     void destroy();
 
 private:
@@ -47,6 +55,11 @@ private:
         std::string interpolation;
         std::vector<float> times;
         std::vector<glm::vec4> values;
+    };
+    struct AnimationClip {
+        std::string name;
+        std::vector<AnimationChannel> channels;
+        float duration = 0.0f;
     };
 
     bool load(const std::filesystem::path& modelPath);
@@ -65,8 +78,14 @@ private:
     std::vector<int> jointNodes_;
     std::vector<glm::mat4> inverseBindMatrices_;
     std::vector<glm::mat4> boneMatrices_;
-    std::vector<AnimationChannel> animationChannels_;
-    float animationDuration_ = 0.0f;
+    std::vector<AnimationClip> clips_;
+    std::vector<NodePose> previousClipPose_;
+    int clipIndex_ = 0;
+    bool playing_ = true;
+    float playbackSpeed_ = 1.0f;
+    float playbackTime_ = 0.0f;
+    float lastUpdateTime_ = -1.0f;
+    float blendRemaining_ = 0.0f;
     glm::vec3 boundsCenter_{0.0f};
     float boundsRadius_ = 0.0f;
     bool valid_ = false;

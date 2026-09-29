@@ -1,6 +1,7 @@
 #include "Camera.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <cmath>
 
 Camera::Camera(glm::vec3 position, float yaw, float pitch)
     : position_(position), yaw_(yaw), pitch_(pitch) {
@@ -47,6 +48,19 @@ void Camera::processMouse(GLFWwindow* window) {
     pitch_ += yOffset * sensitivity;
     pitch_ = glm::clamp(pitch_, -89.0f, 89.0f);
     updateFrontFromAngles();
+}
+
+void Camera::resetMouseSample() {
+    firstMouseSample_ = true;
+}
+
+void Camera::lookAt(const glm::vec3& position, const glm::vec3& target) {
+    position_ = position;
+    const glm::vec3 direction = glm::normalize(target - position);
+    yaw_ = glm::degrees(std::atan2(direction.z, direction.x));
+    pitch_ = glm::degrees(std::asin(glm::clamp(direction.y, -1.0f, 1.0f)));
+    updateFrontFromAngles();
+    resetMouseSample();
 }
 
 void Camera::updateFrontFromAngles() {

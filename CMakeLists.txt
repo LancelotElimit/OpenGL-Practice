@@ -21,6 +21,32 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glfw)
 
+# Dear ImGui: in-window diagnostics with the GLFW and OpenGL 3 backends.
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.92.6-docking
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(imgui)
+if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
+
+add_library(imgui STATIC
+    "${imgui_SOURCE_DIR}/imgui.cpp"
+    "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+    "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+    "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp"
+)
+target_include_directories(imgui PUBLIC
+    "${imgui_SOURCE_DIR}"
+    "${imgui_SOURCE_DIR}/backends"
+)
+target_link_libraries(imgui PUBLIC glfw opengl32)
+
 # GLM: CPU-side vector and matrix mathematics.
 FetchContent_Declare(
     glm
@@ -130,6 +156,23 @@ if(NOT EXISTS "${SIMPLE_SKIN_PATH}")
     )
 endif()
 
+# A compact textured glTF scene for exercising the new importer.
+set(BOX_TEXTURED_PATH "${CMAKE_SOURCE_DIR}/assets/BoxTextured.glb")
+if(NOT EXISTS "${BOX_TEXTURED_PATH}")
+    file(DOWNLOAD
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoxTextured/glTF-Binary/BoxTextured.glb"
+        "${BOX_TEXTURED_PATH}"
+        SHOW_PROGRESS
+        TLS_VERIFY ON
+        STATUS BOX_TEXTURED_DOWNLOAD
+    )
+    list(GET BOX_TEXTURED_DOWNLOAD 0 BOX_TEXTURED_STATUS)
+    if(NOT BOX_TEXTURED_STATUS EQUAL 0)
+        file(REMOVE "${BOX_TEXTURED_PATH}")
+        message(WARNING "Optional BoxTextured.glb could not be downloaded")
+    endif()
+endif()
+
 # GLAD: loads modern OpenGL functions after GLFW creates the context.
 FetchContent_Declare(
     glad
@@ -149,13 +192,19 @@ add_executable(OpenGLPractice
     src/AssetPaths.cpp
     src/BlurBuffer.cpp
     src/Camera.cpp
+    src/DebugPanel.cpp
     src/EnvironmentIBL.cpp
+    src/Fluid2D.cpp
     src/Frustum.cpp
+    src/FluidSystem.cpp
     src/GltfAnimatedModel.cpp
+    src/GltfScene.cpp
+    src/GpuParticleSystem.cpp
     src/Material.cpp
     src/Mesh.cpp
     src/Model.cpp
     src/PbrMaterial.cpp
+    src/ParticleSystem.cpp
     src/RenderTarget.cpp
     src/Renderer.cpp
     src/Scene.cpp
@@ -190,6 +239,17 @@ set(SHADER_FILES
     shaders/skybox.frag
     shaders/skinned.vert
     shaders/skinned.frag
+    shaders/particle.vert
+    shaders/particle.frag
+    shaders/gltf_scene.vert
+    shaders/gltf_scene.frag
+    shaders/fluid.vert
+    shaders/fluid.frag
+    shaders/fluid2d.frag
+    shaders/gpu_particle_update.vert
+    shaders/gpu_particle_update.frag
+    shaders/gpu_particle.vert
+    shaders/gpu_particle.frag
 )
 
 target_sources(OpenGLPractice PRIVATE ${SHADER_FILES})
@@ -206,6 +266,7 @@ add_custom_command(
 target_link_libraries(OpenGLPractice
     PRIVATE
         glfw
+        imgui
         glad_gl_core_33
         glm::glm
         opengl32

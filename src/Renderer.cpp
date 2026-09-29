@@ -79,7 +79,12 @@ Renderer::Renderer(
           "Post-process shader"
       ),
       environmentIbl_(shaderDirectory, environmentPath),
-      animatedModel_(shaderDirectory, animatedModelPath) {
+      animatedModel_(shaderDirectory, animatedModelPath),
+      gltfScene_(shaderDirectory),
+      gpuParticleSystem_(shaderDirectory),
+      smoke2D_(shaderDirectory),
+      fluidSystem_(shaderDirectory),
+      particleSystem_(shaderDirectory) {
     if (!mainProgram_.valid()
         || !lightProgram_.valid()
         || !depthProgram_.valid()
@@ -87,7 +92,11 @@ Renderer::Renderer(
         || !brightPassProgram_.valid()
         || !blurProgram_.valid()
         || !postprocessProgram_.valid()
-        || !environmentIbl_.valid()) {
+        || !environmentIbl_.valid()
+        || !particleSystem_.valid()
+        || !fluidSystem_.valid()
+        || !gpuParticleSystem_.valid()
+        || !smoke2D_.valid()) {
         return;
     }
 
@@ -142,9 +151,29 @@ bool Renderer::valid() const {
     return valid_;
 }
 
+const RendererStats& Renderer::stats() const {
+    return stats_;
+}
+
+GLuint Renderer::viewportTexture() const {
+    return viewportTarget_.colorTexture();
+}
+
 void Renderer::setShowOnlyImportedModel(bool enabled) {
     showOnlyImportedModel_ = enabled;
 }
+
+ParticleSettings& Renderer::particleSettings() { return particleSettings_; }
+bool& Renderer::showGltfModel() { return showAnimatedModel_; }
+GltfAnimatedModel& Renderer::gltfModel() { return animatedModel_; }
+GltfScene& Renderer::gltfScene() { return gltfScene_; }
+bool& Renderer::showGltfScene() { return showGltfScene_; }
+FluidSettings& Renderer::fluidSettings() { return fluidSettings_; }
+FluidSystem& Renderer::fluidSystem() { return fluidSystem_; }
+GpuParticleSettings& Renderer::gpuParticleSettings() { return gpuParticleSettings_; }
+GpuParticleSystem& Renderer::gpuParticleSystem() { return gpuParticleSystem_; }
+Fluid2DSettings& Renderer::smokeSettings() { return smokeSettings_; }
+Fluid2D& Renderer::smoke2D() { return smoke2D_; }
 
 void Renderer::configureStaticUniforms() {
     mainProgram_.use();
@@ -218,6 +247,7 @@ void Renderer::render(
     float modelRoughness,
     float timeSeconds
 ) {
+    stats_ = {};
     const auto& modelTransforms = scene.modelTransforms();
     const glm::mat4& floorTransform = scene.floorTransform();
     const glm::vec3& lightPosition = scene.primaryLightPosition();
@@ -234,7 +264,25 @@ void Renderer::render(
     const glm::mat4 viewProjection = projection * view;
     const Frustum frustum(viewProjection);
 
-    // Cull complete instances on the CPU before updating the instance VBO.
+    smoke2D_.update(timeSeconds - lastSmokeTime_, smokeSettings_);
+    lastSmokeTime_ = timeSeconds;
+    stats_.smokeUpdateMs = smoke2D_.updateMilliseconds();
+    stats_.smokePasses = smoke2D_.passCount();
+    stats_.drawCalls += static_cast<std::uint64_t>(stats_.smokePasses);
+    stats_.submittedTriangles += 2 * static_cast<std::uint64_t>(stats_.smokePasses);
+    gpuParticleSystem_.update(timeSeconds - lastGpuParticleTime_, gpuParticleSettings_);
+    lastGpuParticleTime_ = timeSeconds;
+    stats_.gpuParticleSlots = gpuParticleSystem_.slotCount(gpuParticleSettings_);
+
+    // Keep all instances for shadow passes: an off-screen object may still
+    // cast a shadow into the camera view.
+    stats_.totalInstances = modelTransforms.size();
+    modelMesh.updateInstanceTransforms(
+        modelTransforms.data(),
+        modelTransforms.size()
+    );
+
+    // Cull complete instances for the camera color pass.
     std::vector<glm::mat4> visibleModelTransforms;
     visibleModelTransforms.reserve(modelTransforms.size());
     for (const glm::mat4& transform : modelTransforms) {
@@ -247,15 +295,24 @@ void Renderer::render(
             visibleModelTransforms.push_back(transform);
         }
     }
-    modelMesh.updateInstanceTransforms(
-        visibleModelTransforms.data(),
-        visibleModelTransforms.size()
-    );
+    stats_.visibleInstances = visibleModelTransforms.size();
 
     const glm::mat4 animatedTransform =
         glm::translate(glm::mat4(1.0f), glm::vec3(-2.2f, -0.5f, -1.2f))
         * glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));
+    const glm::mat4 gltfTransform =
+        glm::translate(glm::mat4(1.0f), glm::vec3(2.1f, 0.4f, -1.0f))
+        * glm::scale(glm::mat4(1.0f), glm::vec3(
+            0.75f / std::max(gltfScene_.radius(), 0.001f)));
     animatedModel_.update(timeSeconds);
+    fluidSystem_.update(timeSeconds - lastFluidTime_, fluidSettings_);
+    lastFluidTime_ = timeSeconds;
+    stats_.fluidParticles = fluidSystem_.particleCount();
+    stats_.fluidTriangles = fluidSystem_.triangleCount();
+    stats_.fluidUpdateMs = fluidSystem_.updateMilliseconds();
+    particleSystem_.update(timeSeconds - lastParticleTime_, particleSettings_);
+    lastParticleTime_ = timeSeconds;
+    stats_.liveParticles = particleSystem_.count();
     const bool animatedModelVisible = animatedModel_.valid()
         && frustum.containsSphere(
             transformedCenter(
@@ -281,7 +338,12 @@ void Renderer::render(
         glm::value_ptr(lightSpaceMatrix)
     );
     glUniform1i(depthUseInstancingLocation_, GL_TRUE);
-    modelMesh.drawInstanced();
+    if (!modelTransforms.empty()) {
+        modelMesh.drawInstanced();
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += (model.indices().size() / 3)
+            * modelTransforms.size();
+    }
     glUniform1i(depthUseInstancingLocation_, GL_FALSE);
     if (!showOnlyImportedModel_) {
         glUniformMatrix4fv(
@@ -291,6 +353,8 @@ void Renderer::render(
             glm::value_ptr(floorTransform)
         );
         floorMesh.draw();
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 2;
     }
     spotlightShadowMap_.endWrite();
 
@@ -334,7 +398,12 @@ void Renderer::render(
             glm::value_ptr(faceLightSpace)
         );
         glUniform1i(depthUseInstancingLocation_, GL_TRUE);
-        modelMesh.drawInstanced();
+        if (!modelTransforms.empty()) {
+            modelMesh.drawInstanced();
+            ++stats_.drawCalls;
+            stats_.submittedTriangles += (model.indices().size() / 3)
+                * modelTransforms.size();
+        }
         glUniform1i(depthUseInstancingLocation_, GL_FALSE);
         if (!showOnlyImportedModel_) {
             glUniformMatrix4fv(
@@ -344,6 +413,8 @@ void Renderer::render(
                 glm::value_ptr(floorTransform)
             );
             floorMesh.draw();
+            ++stats_.drawCalls;
+            stats_.submittedTriangles += 2;
         }
     }
 
@@ -353,6 +424,10 @@ void Renderer::render(
         || !blurBuffer_.resize(framebufferWidth, framebufferHeight)) {
         return;
     }
+    modelMesh.updateInstanceTransforms(
+        visibleModelTransforms.data(),
+        visibleModelTransforms.size()
+    );
     sceneTarget_.begin();
     glClearColor(0.08f, 0.12f, 0.20f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -408,19 +483,24 @@ void Renderer::render(
     glUniform1f(roughnessLocation_, modelRoughness);
     glUniform1f(aoLocation_, 1.0f);
     glUniform1i(useInstancingLocation_, GL_TRUE);
-    for (const ModelPart& part : model.parts()) {
-        const GLuint partTexture = materialLibrary.diffuseTextureId(
-            part.diffuseTextureName,
-            fallbackTexture.id()
-        );
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, partTexture);
-        glUniform3fv(
-            materialColorLocation_,
-            1,
-            glm::value_ptr(part.diffuseColor)
-        );
-        modelMesh.drawRangeInstanced(part.firstIndex, part.indexCount);
+    if (!visibleModelTransforms.empty()) {
+        for (const ModelPart& part : model.parts()) {
+            const GLuint partTexture = materialLibrary.diffuseTextureId(
+                part.diffuseTextureName,
+                fallbackTexture.id()
+            );
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, partTexture);
+            glUniform3fv(
+                materialColorLocation_,
+                1,
+                glm::value_ptr(part.diffuseColor)
+            );
+            modelMesh.drawRangeInstanced(part.firstIndex, part.indexCount);
+            ++stats_.drawCalls;
+            stats_.submittedTriangles += (part.indexCount / 3)
+                * visibleModelTransforms.size();
+        }
     }
     glUniform1i(useInstancingLocation_, GL_FALSE);
 
@@ -447,6 +527,8 @@ void Renderer::render(
             normalTexture.bind(3);
         }
         floorMesh.draw();
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 2;
     }
 
     // The glTF joints are evaluated on the CPU; the vertex skinning itself
@@ -458,10 +540,60 @@ void Renderer::render(
             camera.position(),
             lightPosition
         );
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += animatedModel_.triangleCount();
+    }
+
+    const bool gltfVisible = showGltfScene_ && gltfScene_.valid()
+        && frustum.containsSphere(
+            transformedCenter(gltfTransform, gltfScene_.center()),
+            gltfScene_.radius() * maximumScale(gltfTransform));
+    if (gltfVisible) {
+        gltfScene_.draw(viewProjection, gltfTransform, camera.position(),
+                        lightPosition, false);
+        stats_.drawCalls += gltfScene_.drawCount(false);
+        stats_.submittedTriangles += gltfScene_.triangleCount(false);
     }
 
     if (!showOnlyImportedModel_) {
         environmentIbl_.renderSkybox(view, projection);
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 12;
+    }
+
+    if (gltfVisible) {
+        gltfScene_.draw(viewProjection, gltfTransform, camera.position(),
+                        lightPosition, true);
+        stats_.drawCalls += gltfScene_.drawCount(true);
+        stats_.submittedTriangles += gltfScene_.triangleCount(true);
+    }
+
+    if (fluidSettings_.visible) {
+        sceneTarget_.copyColorForSampling();
+        sceneTarget_.copyDepthForSampling();
+        sceneTarget_.bindColorCopy(0);
+        sceneTarget_.bindDepthCopy(1);
+        environmentIbl_.bind(2, 4, 5);
+        fluidSystem_.draw(viewProjection, camera.position(), lightPosition,
+                          framebufferWidth, framebufferHeight, fluidSettings_);
+        ++stats_.drawCalls;
+        if (fluidSettings_.viewMode != 1)
+            stats_.submittedTriangles += fluidSystem_.triangleCount();
+    }
+
+    if (particleSystem_.count() > 0) {
+        sceneTarget_.copyDepthForSampling();
+        sceneTarget_.bindDepthCopy(0);
+        particleSystem_.draw(viewProjection, view, camera.position(),
+                             particleSettings_.preset, particleSettings_.soft);
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 2 * particleSystem_.count();
+    }
+
+    if (gpuParticleSettings_.visible) {
+        gpuParticleSystem_.draw(viewProjection, view, gpuParticleSettings_);
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 2 * stats_.gpuParticleSlots;
     }
 
     // Light markers are intentionally hidden in the imported-model test scene.
@@ -471,6 +603,8 @@ void Renderer::render(
         debugProgram_.use();
         spotlightShadowMap_.bind(0);
         debugMesh.draw();
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 2;
         glEnable(GL_DEPTH_TEST);
     }
 
@@ -482,6 +616,8 @@ void Renderer::render(
     brightPassProgram_.use();
     sceneTarget_.bindColorTexture(0);
     debugMesh.draw();
+    ++stats_.drawCalls;
+    stats_.submittedTriangles += 2;
 
     // A separable Gaussian blur alternates horizontal and vertical passes.
     constexpr int blurPassCount = 10;
@@ -496,10 +632,13 @@ void Renderer::render(
         );
         blurBuffer_.bindTexture(sourceIndex, 0);
         debugMesh.draw();
+        ++stats_.drawCalls;
+        stats_.submittedTriangles += 2;
     }
 
     sceneTarget_.end();
-    glViewport(0, 0, framebufferWidth, framebufferHeight);
+    if (!viewportTarget_.resize(framebufferWidth, framebufferHeight)) return;
+    viewportTarget_.begin();
     postprocessProgram_.use();
     glUniform1i(grayscaleLocation_, useGrayscale ? GL_TRUE : GL_FALSE);
     glUniform1i(
@@ -510,6 +649,9 @@ void Renderer::render(
     sceneTarget_.bindColorTexture(0);
     blurBuffer_.bindTexture(blurPassCount % 2, 1);
     debugMesh.draw();
+    ++stats_.drawCalls;
+    stats_.submittedTriangles += 2;
+    viewportTarget_.end();
     glEnable(GL_DEPTH_TEST);
 }
 
@@ -518,8 +660,14 @@ void Renderer::destroy() {
     spotlightShadowMap_.destroy();
     pointShadowMap_.destroy();
     sceneTarget_.destroy();
+    viewportTarget_.destroy();
     blurBuffer_.destroy();
     animatedModel_.destroy();
+    gltfScene_.destroy();
+    gpuParticleSystem_.destroy();
+    smoke2D_.destroy();
+    fluidSystem_.destroy();
+    particleSystem_.destroy();
     environmentIbl_.destroy();
     mainProgram_.destroy();
     lightProgram_.destroy();

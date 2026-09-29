@@ -69,10 +69,24 @@ ShaderProgram::ShaderProgram(
     build(vertexSource.c_str(), fragmentSource.c_str(), debugName);
 }
 
+ShaderProgram::ShaderProgram(
+    const std::filesystem::path& vertexPath,
+    const std::filesystem::path& fragmentPath,
+    const char* debugName,
+    std::initializer_list<const char*> transformFeedbackVaryings
+) {
+    const std::string vertexSource = readTextFile(vertexPath);
+    const std::string fragmentSource = readTextFile(fragmentPath);
+    if (vertexSource.empty() || fragmentSource.empty()) return;
+    build(vertexSource.c_str(), fragmentSource.c_str(), debugName,
+          transformFeedbackVaryings);
+}
+
 void ShaderProgram::build(
     const char* vertexSource,
     const char* fragmentSource,
-    const char* debugName
+    const char* debugName,
+    std::initializer_list<const char*> transformFeedbackVaryings
 ) {
     const GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexSource, nullptr);
@@ -96,6 +110,12 @@ void ShaderProgram::build(
     program_ = glCreateProgram();
     glAttachShader(program_, vertexShader);
     glAttachShader(program_, fragmentShader);
+    if (transformFeedbackVaryings.size() != 0) {
+        glTransformFeedbackVaryings(
+            program_, static_cast<GLsizei>(transformFeedbackVaryings.size()),
+            transformFeedbackVaryings.begin(), GL_INTERLEAVED_ATTRIBS
+        );
+    }
     glLinkProgram(program_);
 
     glDeleteShader(vertexShader);

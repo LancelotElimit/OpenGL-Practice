@@ -14,6 +14,8 @@ public:
 
     void processKeyboard(GLFWwindow* window, float deltaTime);
     void processMouse(GLFWwindow* window);
+    void resetMouseSample();
+    void lookAt(const glm::vec3& position, const glm::vec3& target);
 
     glm::mat4 viewMatrix() const;
     const glm::vec3& position() const;

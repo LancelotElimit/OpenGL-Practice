@@ -15,6 +15,11 @@ public:
     void begin() const;
     void end() const;
     void bindColorTexture(GLuint textureUnit) const;
+    GLuint colorTexture() const;
+    void copyColorForSampling() const;
+    void bindColorCopy(GLuint textureUnit) const;
+    void copyDepthForSampling() const;
+    void bindDepthCopy(GLuint textureUnit) const;
     void destroy();
 
 private:
@@ -22,7 +27,10 @@ private:
 
     GLuint framebuffer_ = 0;
     GLuint colorTexture_ = 0;
+    GLuint colorCopyTexture_ = 0;
     GLuint depthStencilBuffer_ = 0;
+    GLuint depthCopyFramebuffer_ = 0;
+    GLuint depthCopyTexture_ = 0;
     GLsizei width_ = 0;
     GLsizei height_ = 0;
 };

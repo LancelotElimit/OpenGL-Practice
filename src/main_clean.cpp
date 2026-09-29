@@ -3,6 +3,7 @@
 
 #include "AssetPaths.h"
 #include "Camera.h"
+#include "DebugPanel.h"
 #include "Material.h"
 #include "Mesh.h"
 #include "Model.h"
@@ -18,7 +19,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 int main() {
     Window applicationWindow(1280, 720, "OpenGL Practice");
@@ -174,14 +177,29 @@ int main() {
         return 1;
     }
     renderer.setShowOnlyImportedModel(false);
+    const std::filesystem::path sampleGltf = findAssetPath("assets/BoxTextured.glb");
+    if (!sampleGltf.empty() && renderer.gltfScene().load(sampleGltf)) {
+        renderer.showGltfScene() = true;
+    }
 
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    float lastFrameTime = 0.0f;
+    DebugPanel debugPanel(window);
+    if (!debugPanel.valid()) {
+        std::cerr << "Could not initialize the diagnostics panel.\n";
+        return 1;
+    }
+
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    float lastFrameTime = static_cast<float>(glfwGetTime());
     float exposure = 1.0f;
     float modelMetallic = 0.35f;
     float modelRoughness = 0.28f;
     bool bloomEnabled = true;
     bool f3WasPressed = false;
+    bool f4WasPressed = false;
+    bool uiInteractive = true;
+    float statsUpdateTime = lastFrameTime;
+    float displayedFps = 0.0f;
+    unsigned int statsFrameCount = 0;
 
     while (!applicationWindow.shouldClose()) {
         const float currentFrameTime = static_cast<float>(glfwGetTime());
@@ -191,6 +209,19 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
+
+        const bool f4IsPressed =
+            glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS;
+        if (f4IsPressed && !f4WasPressed) {
+            uiInteractive = !uiInteractive;
+            glfwSetInputMode(
+                window,
+                GLFW_CURSOR,
+                uiInteractive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED
+            );
+            camera.resetMouseSample();
+        }
+        f4WasPressed = f4IsPressed;
 
         const bool f3IsPressed =
             glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS;
@@ -222,10 +253,6 @@ int main() {
         modelMetallic = std::clamp(modelMetallic, 0.0f, 1.0f);
         modelRoughness = std::clamp(modelRoughness, 0.05f, 1.0f);
 
-        camera.processKeyboard(window, deltaTime);
-        camera.processMouse(window);
-        scene.update(currentFrameTime);
-
         int framebufferWidth = 0;
         int framebufferHeight = 0;
         applicationWindow.framebufferSize(
@@ -237,11 +264,21 @@ int main() {
             continue;
         }
 
+        const EditorViewportSize viewport = debugPanel.beginFrame(renderer, uiInteractive);
+        if ((!uiInteractive || debugPanel.sceneNavigating())
+            && glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE) {
+            camera.processKeyboard(window, deltaTime);
+            camera.processMouse(window);
+        } else {
+            camera.resetMouseSample();
+        }
+        scene.update(currentFrameTime);
+
         renderer.render(
             scene,
             camera,
-            framebufferWidth,
-            framebufferHeight,
+            viewport.width,
+            viewport.height,
             modelMesh,
             floorMesh,
             debugMesh,
@@ -257,6 +294,45 @@ int main() {
             modelMetallic,
             modelRoughness,
             currentFrameTime
+        );
+        ++statsFrameCount;
+
+        if (currentFrameTime - statsUpdateTime >= 0.25f) {
+            const float statsElapsed = currentFrameTime - statsUpdateTime;
+            displayedFps = statsElapsed > 0.0f
+                ? static_cast<float>(statsFrameCount) / statsElapsed
+                : 0.0f;
+            statsUpdateTime = currentFrameTime;
+            statsFrameCount = 0;
+            const RendererStats& stats = renderer.stats();
+            std::ostringstream title;
+            title << std::fixed << std::setprecision(1)
+                  << "OpenGL Practice | FPS " << displayedFps
+                  << " | Draws " << stats.drawCalls
+                  << " | Triangles " << stats.submittedTriangles
+                  << " | Instances " << stats.visibleInstances
+                  << '/' << stats.totalInstances
+                  << " | Cached textures " << textureCache.size()
+                  << " | Fluid " << renderer.fluidSystem().simulationMilliseconds()
+                  << "/" << renderer.fluidSystem().surfaceMilliseconds() << "ms"
+                  << " | Metal " << modelMetallic
+                  << " | Rough " << modelRoughness;
+            applicationWindow.setTitle(title.str());
+        }
+
+        debugPanel.draw(
+            renderer,
+            camera,
+            scene,
+            renderer.stats(),
+            displayedFps,
+            deltaTime,
+            textureCache.size(),
+            uiInteractive,
+            modelMetallic,
+            modelRoughness,
+            exposure,
+            bloomEnabled
         );
 
         applicationWindow.swapBuffers();

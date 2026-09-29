@@ -2,12 +2,19 @@
 
 #include "BlurBuffer.h"
 #include "EnvironmentIBL.h"
+#include "Fluid2D.h"
+#include "FluidSystem.h"
 #include "GltfAnimatedModel.h"
+#include "GltfScene.h"
+#include "GpuParticleSystem.h"
+#include "ParticleSystem.h"
 #include "RenderTarget.h"
 #include "ShaderProgram.h"
 #include "ShadowMap.h"
 
 #include <filesystem>
+#include <cstddef>
+#include <cstdint>
 
 #include <glad/gl.h>
 
@@ -18,6 +25,20 @@ class Model;
 class PbrMaterial;
 class Scene;
 class Texture2D;
+
+struct RendererStats {
+    std::uint64_t drawCalls = 0;
+    std::uint64_t submittedTriangles = 0;
+    std::size_t visibleInstances = 0;
+    std::size_t totalInstances = 0;
+    std::size_t liveParticles = 0;
+    std::size_t fluidParticles = 0;
+    std::size_t fluidTriangles = 0;
+    float fluidUpdateMs = 0.0f;
+    std::size_t gpuParticleSlots = 0;
+    float smokeUpdateMs = 0.0f;
+    int smokePasses = 0;
+};
 
 class Renderer {
 public:
@@ -32,7 +53,20 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     bool valid() const;
+    const RendererStats& stats() const;
+    GLuint viewportTexture() const;
     void setShowOnlyImportedModel(bool enabled);
+    ParticleSettings& particleSettings();
+    bool& showGltfModel();
+    GltfAnimatedModel& gltfModel();
+    GltfScene& gltfScene();
+    bool& showGltfScene();
+    FluidSettings& fluidSettings();
+    FluidSystem& fluidSystem();
+    GpuParticleSettings& gpuParticleSettings();
+    GpuParticleSystem& gpuParticleSystem();
+    Fluid2DSettings& smokeSettings();
+    Fluid2D& smoke2D();
     void render(
         const Scene& scene,
         const Camera& camera,
@@ -68,14 +102,30 @@ private:
     ShaderProgram postprocessProgram_;
     EnvironmentIBL environmentIbl_;
     GltfAnimatedModel animatedModel_;
+    GltfScene gltfScene_;
+    GpuParticleSystem gpuParticleSystem_;
+    GpuParticleSettings gpuParticleSettings_;
+    float lastGpuParticleTime_ = 0.0f;
+    Fluid2D smoke2D_;
+    Fluid2DSettings smokeSettings_;
+    float lastSmokeTime_ = 0.0f;
+    FluidSystem fluidSystem_;
+    FluidSettings fluidSettings_;
+    float lastFluidTime_ = 0.0f;
+    ParticleSystem particleSystem_;
+    ParticleSettings particleSettings_;
+    float lastParticleTime_ = 0.0f;
 
     ShadowMap2D spotlightShadowMap_;
     ShadowCubeMap pointShadowMap_;
     RenderTarget sceneTarget_;
+    RenderTarget viewportTarget_;
     BlurBuffer blurBuffer_;
     bool showOnlyImportedModel_ = false;
     bool showAnimatedModel_ = false;
+    bool showGltfScene_ = false;
     bool valid_ = false;
+    RendererStats stats_{};
 
     GLint transformLocation_ = -1;
     GLint modelLocation_ = -1;

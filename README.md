@@ -74,8 +74,43 @@
 - 父节点/子节点场景层级变换
 - tinygltf 加载 glTF 2.0 网格、Skin、逆绑定矩阵和动画通道
 - CPU 动画采样与节点层级更新、GPU 骨骼蒙皮（Skinning）
+- 静态 glTF/.glb 场景：多节点、多三角形 Primitive、PBR 材质与贴图、透明材质
+- 多动画片段选择、暂停/速度控制、LINEAR/STEP/CUBICSPLINE 采样和切换渐变
+- CPU 粒子发射/运动/生命周期，实例化 Billboard、透明排序与软粒子交界
+- OpenGL 3.3 Transform Feedback 双缓冲 GPU 粒子更新与实例化绘制
+- 2D Stable-Fluids 风格烟雾实验窗：速度/密度平流、散度、Jacobi 压力、梯度扣除与障碍
+- 教学型三维 SPH 水体：固定步进、压力/黏性/重力、边界碰撞与连续表面提取
 - 基于包围球的视锥剔除，屏幕外实例不会提交给正常绘制
 - 共享纹理缓存，同一路径的图片只创建一份 GPU 纹理
+- Dear ImGui docking 编辑器：场景视图、层级、属性、资源、输出、性能和实验面板
+
+## 第二、三阶段：资产与粒子
+
+编辑器启动后即可用鼠标操作。`Assets` 页可以选择或输入 `.gltf` / `.glb` 路径并点击加载；`Hierarchy` 选择组件，`Inspector` 调整显示、动画和材质参数。程序默认加载 Khronos 的 `BoxTextured.glb` 作为材质示例；相对路径会从项目/可执行文件周围查找，也接受绝对路径。每个 Primitive 保留自己的材质，支持 Base Color、Metallic/Roughness（G/B 通道）、Normal、Occlusion、Emissive，以及 OPAQUE/MASK/BLEND 和双面材质。当前静态场景与蒙皮动画是两条独立路径：复杂 glTF 的蒙皮、Morph Target、扩展压缩纹理及完整材质扩展尚不支持。
+
+`Particles` 区域有 Sparks、Smoke、Snow 三种预设，可实时调整发射率、寿命、速度、重力和起止大小。粒子在 CPU 上更新，按摄像机距离从远到近排序，一次实例化调用绘制面向摄像机的面片；透明渲染保留深度测试但关闭深度写入。软粒子使用不参与写入的深度副本淡化与实体几何的交界。面板显示实时存活数，上限为 4096。此阶段是可观察、可调的基础粒子系统，不包含流体模拟/表面重建，也不是 GPU 计算粒子。
+
+## 第四阶段：GPU 粒子
+
+`GPU particles` 面板可控制显示、暂停、发射、重置、粒子槽位数量、发射率、寿命、重力和大小。粒子位置、速度、年龄等状态存在两份 GPU Buffer 中：一个作为 Transform Feedback 输入，另一个接收更新着色器输出，下一帧交换角色；显示使用实例化 Billboard。默认 8192 槽位，最多 32768。这个系统与前面的 CPU 粒子系统并存，便于对照两条数据路径；为省去 GPU 粒子排序，GPU 特效使用加法混合，而不是宣称已经解决大量透明粒子的正确 Alpha 合成。OpenGL 3.3 不要求 Compute Shader。
+
+## 第五阶段：2D 烟雾流体
+
+底部可停靠的 `2D Smoke Lab` 直接显示密度图。左键拖动注入烟雾和速度，右键拖动涂抹障碍；可开关自动烟源、暂停/重置，并调节笔刷、速度力、密度源、衰减和压力迭代次数。`Field` 可切到 Velocity、Pressure、Divergence、Obstacles，检查每个中间量。模拟数据驻留在 192×192 的速度、密度、压力、散度和障碍纹理中，每一步经离屏 Framebuffer 执行：
+
+```text
+速度/密度平流 → 注入 → 散度 → Jacobi 压力求解 → 减去压力梯度 → 显示密度
+```
+
+这是参考 [GPU Gems 的二维流体方案](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu)的可交互教学实现，不是完整不可压 Navier–Stokes 求解器。关闭实验页后可从 `Window` 菜单重新打开；关闭 `Simulate` 才会停止二维场更新。
+
+## 第六阶段：三维 SPH 水体与水面材质
+
+从顶部 `Window` 菜单打开 `3D Water Lab`，也可在 `Hierarchy` 选择 `3D Water` 后从 `Inspector` 打开。实验窗可显示/暂停水体、聚焦摄像机、重置初始水块、单步推进、施加 Splash 冲量和持续倒水；`Geometry` 可在连续水面、原始粒子点、线框之间切换。面板同时显示粒子数、网格三角形数、模拟和重建耗时。默认 125 个水粒子，最多 256 个。水体默认隐藏；打开 `Show water` 后才运行这部分 CPU 模拟。若同时开启 2D 烟雾使 Debug 帧率下降，可在同一窗口关闭 `Simulate 2D smoke`，并用 `Surface rebuilds / second` 降低网格更新频率。
+
+每个固定时间步先由附近粒子计算密度和压力，再求压力、黏性、重力与容器边界响应。水面不是把粒子贴图叠起来：程序把粒子核函数写入三维标量场，使用 marching tetrahedra 提取连续三角网格，并把表面法线送到水材质着色器。粒子模式与线框模式用于核对“模拟点 → 密度场 → 可见水面”的关系。核心 SPH 思路参考 [Müller 等人的原始论文](https://diglib.eg.org/items/fb9edf26-94b0-4302-8cfc-52632841cae7)，但这里是为学习和交互调参简化的实现。
+
+水面材质在绘制前复制不透明场景的 HDR 颜色与深度：沿法线偏移屏幕采样产生近似折射，深度差控制吸收与浅水边缘，环境 Cubemap 提供视角相关的 Fresnel 反射。`Shading` 可单独查看折射、Fresnel 权重和法线；折射量、吸收、反射、粗糙度、泡沫和不透明度均可调。这是屏幕空间近似，不是光线追踪折射或完整物理水体；屏幕外物体不能被折射显示，也没有真实表面张力、复杂障碍碰撞、三维体积流体或 GPU SPH 求解。
 
 ## 项目结构
 
@@ -88,10 +123,12 @@ OpenGL-Practice/
 │  ├─ concrete_*            # CC0 PBR 贴图组
 │  ├─ comparison-*.png      # 虚幻参考效果对比图
 │  └─ SimpleSkin.gltf       # CC0 glTF 骨骼动画示例
+│  └─ BoxTextured.glb       # Khronos 纹理材质示例
 ├─ src/
 │  ├─ main_clean.cpp        # 程序入口、资源准备和主循环
 │  ├─ ShaderProgram.cpp     # Shader 编译、链接和 uniform 查询
 │  ├─ Camera.cpp            # 第一人称摄像机输入和 View 矩阵
+│  ├─ DebugPanel.cpp        # docking 编辑器与模块面板
 │  ├─ Mesh.cpp              # VAO/VBO/EBO、实例缓冲区和绘制
 │  ├─ Model.cpp             # OBJ/MTL 解析、索引去重和切线生成
 │  ├─ Material.cpp          # MTL 漫反射纹理的加载、持有和查找
@@ -99,6 +136,11 @@ OpenGL-Practice/
 │  ├─ BlurBuffer.cpp        # Bloom 的双 HDR 模糊缓冲区
 │  ├─ EnvironmentIBL.cpp    # 环境贴图与 IBL 预计算资源
 │  ├─ GltfAnimatedModel.cpp # glTF、动画采样和 GPU Skinning
+│  ├─ GltfScene.cpp         # 静态 glTF 场景和 PBR 材质
+│  ├─ ParticleSystem.cpp    # CPU 发射/更新与实例化绘制
+│  ├─ GpuParticleSystem.cpp # Transform Feedback 粒子更新
+│  ├─ Fluid2D.cpp           # 2D 烟雾纹理与多 Pass 求解
+│  ├─ FluidSystem.cpp       # SPH 更新、密度场与水面网格提取
 │  ├─ Frustum.cpp           # 视锥平面与包围球测试
 │  ├─ TextureCache.cpp      # 共享文件纹理资源
 │  ├─ Scene.cpp             # 场景节点、世界矩阵和动态光源
@@ -141,6 +183,7 @@ OpenGL-Practice/
 main_clean.cpp   → 准备资源并运行主循环
 ShaderProgram    → 从 shaders/ 读取 GLSL、编译/链接并查询 uniform
 Camera           → 处理 WASD/鼠标，生成 View 矩阵
+DebugPanel       → 在最终画面上叠加实时统计与可调参数
 Mesh             → 管理几何/实例缓冲区并发起普通或实例化绘制
 Model            → 解析 OBJ/MTL，生成索引顶点、切线和材质分段
 MaterialLibrary  → 加载并管理 MTL 引用的漫反射纹理
@@ -180,15 +223,17 @@ cmake --build build --config Debug
 
 ## 操作方式
 
-- 鼠标：旋转摄像机视角
-- `W/A/S/D`：移动摄像机
+- 场景视图中按住鼠标右键拖动：旋转摄像机；同时按 `W/A/S/D`：移动摄像机
 - `ESC`：退出程序
 - 按住 `F1`：显示聚光灯阴影深度图
 - 按住 `F2`：对最终画面应用灰度后处理
 - `F3`：开启/关闭 Bloom
+- `F4`：切换编辑器鼠标模式 / 全窗口自由摄像机模式
 - `↑/↓`：提高/降低 HDR 曝光值
 - `Z/X`：降低/提高模型金属度
 - `C/V`：降低/提高模型粗糙度
+
+界面布局为 `Hierarchy | Scene View | Inspector`，底部停靠 `Assets / Output / Profiler / 2D Smoke Lab`。窗口可以拖动、停靠、关闭并从 `Window` 菜单重新打开；布局保存在本机的 `OpenGLPractice/editor_layout.ini`，菜单可恢复默认布局。在 `Hierarchy` 选中 `Imported OBJ` 后，`Inspector` 可编辑相对位置、旋转、缩放和材质参数。`Profiler` 显示 FPS、帧时间、Draw Call、三角形、粒子与流体统计。窗口标题约每 0.25 秒刷新简要统计；三角形数包含阴影和后处理 Pass 的重复绘制，不含编辑器自身的绘制。
 
 ## 渲染流程概览
 
@@ -196,6 +241,8 @@ cmake --build build --config Debug
 
 ```text
 更新输入和摄像机
+        ↓
+Transform Feedback 更新 GPU 粒子；2D 烟雾执行平流/压力投影
         ↓
 计算场景节点的世界矩阵
         ↓
@@ -212,6 +259,12 @@ Cook–Torrance PBR 直接光照
 Irradiance + Prefilter + BRDF LUT 环境光照
         ↓
 绘制 HDR 天空盒
+        ↓
+绘制透明 glTF Primitive
+        ↓
+绘制连续流体水面或调试粒子/线框
+        ↓
+绘制 CPU 软粒子与 GPU 实例化粒子
         ↓
 绘制灯光标记和调试视图
         ↓
@@ -232,5 +285,6 @@ Irradiance + Prefilter + BRDF LUT 环境光照
 - stb_image：图像文件加载
 - tinyobjloader：OBJ 模型解析
 - tinygltf：glTF 2.0、Skin 和 Animation 数据解析
+- Dear ImGui docking：可停靠编辑器工作区和参数控件
 
 依赖由 CMake `FetchContent` 管理，不需要手动复制到项目目录。
