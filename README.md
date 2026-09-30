@@ -6,6 +6,14 @@
 
 完整说明请参阅：[项目完整文档](docs/PROJECT_GUIDE.md)
 
+## 架构整理第二、三、四阶段
+
+已接入独立模型引用/缓存、数据组件、模拟与绘制分离、父子层级、64 步撤销/重做、
+稳定 ID 保存与暂停单步，并新增无 ImGui 的 LancelotPlayer。
+资源可拖入 Scene View 或 Inspector；Ctrl+Z 撤销，Ctrl+Y 重做，Pause 后 Step 单步。
+这不是完整 ECS、脚本热重载或生产级资源管线。
+详见：[新版操作说明](docs/EDITOR_WORKFLOW.md) 与 [架构边界](docs/ARCHITECTURE.md)。
+
 ## 对象编辑与独立项目
 
 ### 运行与角色脚本
@@ -13,11 +21,13 @@
 顶部 `Play / Pause / Resume / Stop` 提供独立运行场景。Sandbox 的 `Player`
 已绑定项目 C++ 脚本：Play 后点击 Scene View，再用 WASD 移动；Esc 暂停，Stop
 恢复编辑场景和相机。Inspector 可选择 Behaviour、主角、移动速度和相机偏移。
-暂停同时冻结动画、粒子和流体，但继续渲染与响应 UI。
+暂停同时冻结动画、粒子和流体，但继续渲染与响应 UI；Step 可单次推进。
 脚本修改后需要重新编译，尚无角色碰撞和热重载。
 详见：[运行模式与 C++ 脚本](docs/PLAY_MODE.md)。
 
-引擎现在单独编译为 `LancelotEngine` 库，编辑器入口为 `src/EditorMain.cpp`。
+引擎编译为 `LancelotEngine`，编辑器独立编译为 `LancelotEditor`；入口为 `editor/src/EditorMain.cpp`。
+引擎不再依赖 ImGui/ImGuizmo，支持 `-DLANCELOT_BUILD_EDITOR=OFF` 独立构建。
+本轮完成面板、输入采样/分发与宿主主循环拆分，详见：[架构与后续边界](docs/ARCHITECTURE.md)。
 示例场景与资源引用位于 `projects/Sandbox`，不再由主循环硬编码创建。
 通过 `File → Open Project...` 输入 `.lancelot` 文件路径打开项目；`Ctrl+S`
 保存场景对象及资源引用，并生成 `.bak` 备份。也可把项目路径作为启动参数。
@@ -149,12 +159,14 @@ OpenGL-Practice/
 │  └─ SimpleSkin.gltf       # CC0 glTF 骨骼动画示例
 │  └─ BoxTextured.glb       # Khronos 纹理材质示例
 ├─ src/
-│  ├─ EditorMain.cpp        # 打开项目的编辑器入口
-│  ├─ EngineApplication.cpp # 通用资源准备和主循环
+│  ├─ EngineApplication.cpp # 引擎会话与资源生命周期
 │  ├─ Project.cpp           # 项目与场景读写
 │  ├─ ShaderProgram.cpp     # Shader 编译、链接和 uniform 查询
 │  ├─ Camera.cpp            # 第一人称摄像机输入和 View 矩阵
-│  ├─ DebugPanel.cpp        # docking 编辑器与模块面板
+│  ├─ Input.cpp             # 平台输入采样
+│  ├─ AssetLibrary.cpp      # 多模型导入与缓存
+│  ├─ SimulationRuntime.cpp # 模拟与动画更新
+│  ├─ RuntimeSession.cpp    # 脚本与运行生命周期
 │  ├─ Mesh.cpp              # VAO/VBO/EBO、实例缓冲区和绘制
 │  ├─ Model.cpp             # OBJ/MTL 解析、索引去重和切线生成
 │  ├─ Material.cpp          # MTL 漫反射纹理的加载、持有和查找
@@ -176,6 +188,11 @@ OpenGL-Practice/
 │  ├─ AssetPaths.cpp        # 跨工作目录查找 assets
 │  ├─ Window.cpp            # GLFW 窗口、Context 和 GLAD 初始化
 │  └─ main.cpp              # 早期三角形练习代码
+├─ editor/
+│  ├─ include/              # 编辑器接口与面板状态
+│  └─ src/                  # EditorMain/Application/Workspace、独立面板与 PlaySession
+├─ runtime/                 # 独立 Player 宿主
+├─ projects/                # 项目描述、场景数据与项目脚本
 ├─ include/
 │  ├─ ShaderProgram.h
 │  ├─ Camera.h
@@ -201,17 +218,19 @@ OpenGL-Practice/
 └─ README.md
 ```
 
-`EditorMain.cpp` 负责打开项目，`EngineApplication.cpp` 运行通用的“输入、更新、渲染、显示”主循环。原来的 `main.cpp` 保留作为早期练习记录，CMake 不会编译它。
+`editor/src/EditorMain.cpp` 打开项目，`EditorApplication.cpp` 组织宿主主循环；`EngineApplication.cpp` 只负责引擎会话和资源，不创建编辑器 UI。原来的 `main.cpp` 保留作为早期练习记录，CMake 不会编译它。
 
 ## 模块职责
 
 ```text
-EditorMain.cpp   → 打开项目并启动引擎
+EditorMain.cpp   → 打开项目并启动编辑器宿主
 Project.cpp      → 读取资源引用、保存和加载场景
-EngineApplication.cpp → 准备资源并运行主循环
+EngineApplication.cpp → 资源初始化、会话生命周期与渲染入口
+EditorApplication.cpp → 主循环与编辑/运行流程
+InputSystem / EditorInputRouter → 平台采样与宿主输入分流
 ShaderProgram    → 从 shaders/ 读取 GLSL、编译/链接并查询 uniform
-Camera           → 处理 WASD/鼠标，生成 View 矩阵
-DebugPanel       → 在最终画面上叠加实时统计与可调参数
+Camera           → 接收移动轴/指针坐标，生成 View 矩阵
+EditorWorkspace  → Docking、Scene View 与独立面板组合
 Mesh             → 管理几何/实例缓冲区并发起普通或实例化绘制
 Model            → 解析 OBJ/MTL，生成索引顶点、切线和材质分段
 MaterialLibrary  → 加载并管理 MTL 引用的漫反射纹理
@@ -272,7 +291,7 @@ Windows 下仅在文本输入框内关联中文输入法，避免输入法截走
 
 界面布局为 `Hierarchy | Scene View | Inspector`，底部停靠 `Resource Browser / Output / Profiler / 2D Smoke Lab`。各窗口可以拖动、停靠、关闭并从 `Window` 菜单重新打开；布局保存在本机的 `OpenGLPractice/editor_layout.ini`，菜单可恢复默认布局。对象轴以归一化模型的中心为基准；移动/旋转可选世界或局部轴，单轴缩放使用局部轴，避免旋转后引入剪切。右键相机导航和文本输入期间不会触发对象快捷键。`Profiler` 显示 FPS、帧时间、Draw Call、三角形、粒子与流体统计；统计包含渲染 Pass 的重复绘制，不含编辑器自身的绘制。
 
-实例编辑覆盖模型、粒子、水、烟雾、平台、灯光、相机和环境。静态 OBJ/glTF 与平台、烟雾平面点击选择检测三角形，蒙皮模型和水暂用包围球，不处理透明纹理的空洞。复制共享模型资源，但变换和模拟参数独立；OBJ 材质和蒙皮动画仍共享。加载新 glTF 会替换全部 glTF 实例使用的共享资源。删除只移除场景实例，不删除磁盘文件；Ctrl+S 保存编辑结果，尚无撤销/重做。烟雾目前是二维模拟的场景显示面，不是真正的体积烟雾。
+实例编辑覆盖模型、粒子、水、烟雾、平台、灯光、相机和环境。静态 OBJ/glTF 与平台、烟雾平面点击选择检测三角形，蒙皮模型和水暂用包围球，不处理透明纹理的空洞。模型按路径绑定与缓存，OBJ 可覆盖材质参数，蒙皮动画按对象独立控制。层级复制/删除针对子树，不删除磁盘资产；Ctrl+S 保存，Ctrl+Z/Ctrl+Y 撤销和重做作者数据。烟雾仍是二维模拟的显示面，不是真正体积烟雾。
 
 ### 粒子发射器对象
 

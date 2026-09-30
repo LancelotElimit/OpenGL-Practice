@@ -8,7 +8,8 @@ Sandbox 的 `Player`（当前使用鼠标模型作为角色）已经绑定 `Play
 2. 点击 **Scene View** 的画面，让它获得键盘焦点。
 3. **WASD** 沿世界 XZ 平面移动角色；默认跟随相机保持固定偏移。
 4. **Pause** 或 **Esc** 暂停；**Resume** 继续。
-5. **Stop** 回到编辑状态，角色位置和编辑相机恢复开始前的状态。
+5. 暂停时 **Step** 推进一次 1/60 秒的脚本、模拟与动画更新，保持暂停；无玩家输入。
+6. **Stop** 回到编辑状态，角色位置和编辑相机恢复开始前的状态。
 
 运行/暂停时场景编辑、资源导入、项目切换与保存被禁用，避免误把临时状态写进项目。
 暂停仍正常渲染画面、响应 UI，但不更新脚本、骨骼动画、CPU/GPU 粒子、水或烟雾。
@@ -40,6 +41,7 @@ Ctrl+S 保存绑定和参数。复制对象会复制脚本参数，但不会复�
     │ 更新变换 → 模拟/动画 → 渲染
     ├─ Pause：停逻辑与模拟，继续渲染/UI
     ├─ Resume：恢复更新，不补算暂停时长
+    ├─ Step：单次 1/60 秒更新，仍处于暂停
     └─ Stop：OnStop → 丢弃运行场景 → 恢复编辑相机
 ```
 
@@ -50,9 +52,10 @@ Ctrl+S 保存绑定和参数。复制对象会复制脚本参数，但不会复�
 ## C++ 脚本：项目代码与引擎分离
 
 - `include/ScriptBehaviour.h`：引擎提供 `OnStart / OnUpdate / OnStop`、所属对象、输入、相机和时间步。
-- `include/PlaySession.h`、`src/PlaySession.cpp`：引擎管理状态、场景副本与生命周期。
+- `include/RuntimeSession.h`、`src/RuntimeSession.cpp`：引擎管理状态、场景副本与脚本生命周期；编辑器 PlaySession 是此类的兼容别名。
 - `projects/Sandbox/Scripts/PlayerController.cpp`：项目行为，独立编译为 `LancelotProjectScripts`。
-- `src/EditorMain.cpp`：注册编译好的项目脚本，再把注册表传给引擎。
+- `editor/src/EditorMain.cpp`：注册编译好的项目脚本，再把注册表传给编辑器宿主。
+- `editor/src/EditorApplication.cpp`：组织帧循环；`EditorInputRouter.cpp` 按模式与视图焦点分发输入。
 
 增加脚本时，继承 `ScriptBehaviour`，在 `registerProjectScripts` 中注册工厂，
 把源文件加入项目脚本库并重新编译，然后在 Inspector 中选择它。
@@ -67,3 +70,12 @@ Ctrl+S 保存绑定和参数。复制对象会复制脚本参数，但不会复�
 
 CTest 包含 `PlaySessionTests`，检查生命周期、斜向速度、暂停、恢复、相机还原、
 再次开始、主角唯一性、未注册脚本和脚本异常；`ProjectTests` 检查绑定参数保存重载。
+## 独立 Player
+
+```powershell
+.\out\build\x64-Debug\LancelotPlayer.exe "D:\MyProject\MyProject.lancelot"
+```
+
+不带参数打开 Sandbox。WASD 移动，Esc 暂停/恢复，关闭窗口退出。Player 不加载编辑 UI，
+也不把运行变化保存回项目；编辑器和 Player 使用相同的已编译项目脚本注册表。
+支持父节点下的世界空间移动和跟随相机；尚无动态项目脚本模块或自动导出安装包。

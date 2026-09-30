@@ -12,7 +12,7 @@ void framebufferSizeCallback(GLFWwindow*, int width, int height) {
 
 } // namespace
 
-Window::Window(int width, int height, const char* title) {
+Window::Window(int width, int height, const char* title, bool visible) {
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW.\n";
         return;
@@ -21,6 +21,7 @@ Window::Window(int width, int height, const char* title) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_VISIBLE,visible?GLFW_TRUE:GLFW_FALSE);
 
     window_ = glfwCreateWindow(width, height, title, nullptr, nullptr);
     if (!window_) {

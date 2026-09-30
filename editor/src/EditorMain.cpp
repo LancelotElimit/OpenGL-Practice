@@ -1,6 +1,6 @@
 #include "Project.h"
 #include "AssetPaths.h"
-#include "EngineApplication.h"
+#include "EditorApplication.h"
 #include "ScriptBehaviour.h"
 #include "ProjectScripts.h"
 #include <iostream>
@@ -11,7 +11,7 @@ int main(int argc,char** argv) {
     for (;;) {
         Project project;
         if(!project.open(path)) { std::cerr << project.error() << '\n'; return 1; }
-        const int result=EngineApplication{}.run(project,scripts);
+        const int result=EditorApplication{}.run(project,scripts);
         if(result || project.requestedOpen.empty()) return result;
         path=project.requestedOpen;
     }

@@ -9,10 +9,12 @@
 当前实际编译的文件是：
 
 ```text
-src/EditorMain.cpp → Project → EngineApplication
+editor/src/EditorMain.cpp → Project → EditorApplication → EngineApplication
 ```
 
 `src/main.cpp` 保留为早期三角形和变换练习记录，CMake 当前不会编译它。
+
+最新模块边界见 [架构说明](ARCHITECTURE.md)：编辑器面板、PlaySession 与输入分发位于 `editor/`，引擎位于 `include/` 和 `src/`。支持关闭编辑器构建；第二至第四阶段现已接入路径资源引用、数据组件、模拟/绘制分离、父子层级、历史记录与独立 Player。具体操作和仍未实现的扩展见 [编辑工作流](EDITOR_WORKFLOW.md)。
 
 ## 2. 当前功能总览
 
@@ -292,7 +294,7 @@ OpenGL-Practice/
 │  └─ *.png                 # 测试纹理
 ├─ src/
 │  ├─ EditorMain.cpp        # 独立项目入口
-│  ├─ EngineApplication.cpp # 通用资源准备、输入和主循环
+│  ├─ EngineApplication.cpp # 引擎会话与资源生命周期
 │  ├─ Project.cpp           # 项目和场景读写
 │  ├─ Renderer.cpp          # 阴影、PBR、天空盒和后处理 Pass
 │  ├─ EnvironmentIBL.cpp    # 环境 Cubemap 与 IBL 预计算
@@ -374,13 +376,13 @@ cmake --build build --config Debug
 
 ## 10. 当前限制
 
-- `EditorMain.cpp` 打开项目，`EngineApplication.cpp` 执行通用主循环；引擎单独编译为 `LancelotEngine` 库，示例内容来自项目文件。
+- `editor/src/EditorMain.cpp` 打开项目，`EditorApplication.cpp` 组织主循环；`LancelotEditor` 与无 ImGui 依赖的 `LancelotEngine` 分开编译，示例内容来自项目文件。
 - 第二个蓝色点光源目前不投射阴影。
 - 法线贴图仍是很小的程序内测试纹理，不是从外部 PNG 加载。
 - 点光源阴影每帧渲染六个面，性能开销较大。
 - 阴影贴图分辨率、投影范围和窗口宽高目前部分使用固定值。
-- 当前场景图只是简单的父子节点数组，还不是通用递归场景图。
-- 编辑器是可停靠工作区原型：已有模型与 CPU/GPU 粒子发射器目录、点击选择、Q/W/E Gizmo 和复制删除，但尚无撤销/重做、场景序列化、可编辑父子层级或通用 ECS。地面和流体未纳入通用对象操作。
+- 场景对象现支持递归父子层级；尚无空间索引或完整 ECS。
+- 编辑器仍是教学原型，但所有场景对象（包括平台、水、烟雾）均可编辑，已有父子层级、子树复制/删除、撤销/重做和场景持久化；未实现完整 ECS。
 - 当前只对共享同一 Mesh 和材质分段的模型使用 GPU Instancing。
 - OBJ 模型的 Metallic、Roughness 和 AO 仍是标量参数；真实 PBR 贴图组当前应用于地面。
 - 静态 glTF 场景已覆盖核心 PBR 材质，但目前只支持基础三角形网格和第一套 UV；不处理 Draco/Meshopt、Morph Target、材质扩展和复杂纹理变换。静态 glTF 不驱动 Skin 动画。
@@ -392,13 +394,13 @@ cmake --build build --config Debug
 
 Dear ImGui docking 工作区默认是左侧 `Hierarchy`、中央 `Scene View`、右侧 `Inspector`，底部 `Resource Browser / Output / Profiler / 2D Smoke Lab`。面板可拖动、停靠、关闭和重开，布局保存在本机。场景先写入离屏纹理，再在 Scene View 上叠加 ImGuizmo 工具。点击静态模型时先做包围球粗检测，再在导入模型坐标中做射线/三角形求交；射线方向变换后不归一化，以保留世界距离并正确比较非均匀缩放实例。蒙皮演示暂用绑定姿势包围球。
 
-`SceneObject` 是可克隆的多态基类，保存运行期稳定 ID、名称、类型、可见性和 TRS；模型、平台、模拟对象、灯光、相机和环境使用各自的派生类。资源导入矩阵负责居中与尺寸归一化，编辑矩阵按 `T * Rz * Ry * Rx * S` 组合，最终模型矩阵为 `editor * import`。点击对象或目录后按 Q 移动、W 旋转、E 缩放；工具与 Inspector 数值互相同步。单轴缩放使用局部轴；移动和旋转可切换世界/局部模式，并设置吸附。Ctrl+D 复制，Delete 删除实例；右键菜单和按钮提供相同操作。复制共享几何资源但具有独立变换，目录修改不会删除磁盘资源。Ctrl+S 将对象变换和组件参数写入当前项目场景；模拟的动态粒子位置和流体纹理不持久化。
+`SceneObject` 是可克隆的多态基类，保存运行期稳定 ID、名称、类型、可见性和 TRS；模型、平台、模拟对象、灯光、相机和环境使用各自的派生类。资源导入矩阵负责居中与尺寸归一化，编辑矩阵按 `T * Rz * Ry * Rx * S` 组合，最终模型矩阵为 `parentWorld * localTRS * import`。点击对象或目录后按 Q 移动、W 旋转、E 缩放；工具与 Inspector 数值互相同步。单轴缩放使用局部轴；移动和旋转可切换世界/局部模式，并设置吸附。Ctrl+D 复制，Delete 删除实例；右键菜单和按钮提供相同操作。复制共享几何资源但具有独立变换，目录修改不会删除磁盘资源。Ctrl+S 将对象变换和组件参数写入当前项目场景；模拟的动态粒子位置和流体纹理不持久化。
 
-Resource Browser 是独立可停靠窗口，支持目录进入/返回/根目录、文件名筛选、路径显示、glTF 加载及添加已加载模型的实例。当前仅保留一份静态 glTF 共享资源，重新加载会替换所有同类实例的几何与材质；不同 glTF 文件不能同时驻留。右键拖动 Scene View + WASD 用于相机导航，此时 W 不切换 Gizmo；F 聚焦选中实例，F4 切换旧式全窗口自由摄像机。Profiler 统计不包含编辑器自身绘制。OBJ 阴影 Pass 保留全部可见实例，颜色 Pass 才使用摄像机视锥剔除。蒙皮和静态 glTF 沿用其原有专用绘制路径。
+Resource Browser 是独立可停靠窗口，支持目录进入/返回/根目录、文件名筛选、路径显示、glTF 加载及添加已加载模型的实例。当前多个 OBJ/glTF 可按路径同时驻留与缓存，导入新增对象，绑定只修改选中对象；蒙皮对象独立控制动画。右键拖动 Scene View + WASD 用于相机导航，此时 W 不切换 Gizmo；F 聚焦选中实例，F4 切换旧式全窗口自由摄像机。Profiler 统计不包含编辑器自身绘制。OBJ 阴影 Pass 保留全部可见实例，颜色 Pass 才使用摄像机视锥剔除。蒙皮和静态 glTF 沿用其原有专用绘制路径。
 
 ## 11. 推荐学习路线
 
-粒子发射器也属于 `SceneObject`：数据组件只保存参数，Renderer 以稳定 ID 管理独立 CPU 粒子池或 GPU Transform Feedback 缓冲区。目录复制产生新 ID 与参数副本，下次渲染创建空的模拟状态；目录删除后 Renderer 回收对应运行时资源。粒子模拟以局部原点为发射源，CPU 绘制前变换位置，GPU 顶点着色器使用 `uEmitterTransform`，因此移动不需要重置或回读 GPU 粒子。旋转也作用于局部重力；粒子片仍保持 Billboard 朝向。场景原点标记用于选择发射器，而不是把每个动态粒子当成独立可编辑对象。
+粒子发射器也属于 `SceneObject`：数据组件只保存参数，SimulationRuntime 以稳定 ID 管理独立 CPU 粒子池或 GPU Transform Feedback 缓冲区。目录复制产生新 ID 与参数副本，下次更新创建空的模拟状态；目录删除后 SimulationRuntime 回收对应运行时资源。粒子模拟以局部原点为发射源，CPU 绘制前变换位置，GPU 顶点着色器使用 `uEmitterTransform`，因此移动不需要重置或回读 GPU 粒子。旋转也作用于局部重力；粒子片仍保持 Billboard 朝向。场景原点标记用于选择发射器，而不是把每个动态粒子当成独立可编辑对象。
 
 建议接下来按以下顺序继续：
 

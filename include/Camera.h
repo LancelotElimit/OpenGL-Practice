@@ -1,7 +1,5 @@
 #pragma once
 
-struct GLFWwindow;
-
 #include <glm/glm.hpp>
 
 class Camera {
@@ -12,8 +10,8 @@ public:
         float pitch = 0.0f
     );
 
-    void processKeyboard(GLFWwindow* window, float deltaTime);
-    void processMouse(GLFWwindow* window);
+    void move(float rightAxis, float forwardAxis, float deltaTime);
+    void rotateFromPointer(double mouseX, double mouseY);
     void resetMouseSample();
     void lookAt(const glm::vec3& position, const glm::vec3& target);
 

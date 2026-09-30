@@ -22,6 +22,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glfw)
 
 # Dear ImGui: in-window diagnostics with the GLFW and OpenGL 3 backends.
+option(LANCELOT_BUILD_EDITOR "Build the ImGui editor host" ON)
+if(LANCELOT_BUILD_EDITOR)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -57,6 +59,8 @@ endif()
 add_library(imguizmo STATIC "${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp")
 target_include_directories(imguizmo PUBLIC "${imguizmo_SOURCE_DIR}/src")
 target_link_libraries(imguizmo PUBLIC imgui)
+
+endif() # LANCELOT_BUILD_EDITOR
 
 # GLM: CPU-side vector and matrix mathematics.
 FetchContent_Declare(
@@ -205,11 +209,13 @@ endif()
 add_library(LancelotEngine STATIC
     src/EngineApplication.cpp
     src/Project.cpp
-    src/PlaySession.cpp
+    src/Input.cpp
+    src/AssetLibrary.cpp
+    src/SimulationRuntime.cpp
+    src/RuntimeSession.cpp
     src/AssetPaths.cpp
     src/BlurBuffer.cpp
     src/Camera.cpp
-    src/DebugPanel.cpp
     src/EnvironmentIBL.cpp
     src/Fluid2D.cpp
     src/Frustum.cpp
@@ -231,11 +237,30 @@ add_library(LancelotEngine STATIC
     src/TextureCache.cpp
     src/Window.cpp
 )
-add_executable(OpenGLPractice src/EditorMain.cpp)
 add_library(LancelotProjectScripts STATIC projects/Sandbox/Scripts/PlayerController.cpp)
 target_include_directories(LancelotProjectScripts PUBLIC "${CMAKE_SOURCE_DIR}/projects/Sandbox/Scripts")
 target_link_libraries(LancelotProjectScripts PUBLIC LancelotEngine)
-target_link_libraries(OpenGLPractice PRIVATE LancelotProjectScripts)
+add_executable(LancelotPlayer runtime/PlayerMain.cpp)
+target_link_libraries(LancelotPlayer PRIVATE LancelotEngine LancelotProjectScripts)
+if(LANCELOT_BUILD_EDITOR)
+    add_library(LancelotEditor STATIC
+        editor/src/EditorApplication.cpp
+        editor/src/EditorInputRouter.cpp
+        editor/src/EditorWorkspace.cpp
+        editor/src/HierarchyPanel.cpp
+        editor/src/InspectorPanel.cpp
+        editor/src/ResourceBrowserPanel.cpp
+        editor/src/OutputPanel.cpp
+        editor/src/ProfilerPanel.cpp
+        editor/src/SmokePanel.cpp
+        editor/src/WaterPanel.cpp
+        editor/src/SelectionController.cpp
+    )
+    target_include_directories(LancelotEditor PUBLIC "${CMAKE_SOURCE_DIR}/editor/include")
+    target_link_libraries(LancelotEditor PUBLIC LancelotEngine PRIVATE imgui imguizmo imm32)
+    add_executable(OpenGLPractice editor/src/EditorMain.cpp)
+    target_link_libraries(OpenGLPractice PRIVATE LancelotEditor LancelotProjectScripts)
+endif()
 
 set(SHADER_FILES
     shaders/main.vert
@@ -276,9 +301,12 @@ set(SHADER_FILES
     shaders/gpu_particle.frag
 )
 
+add_custom_command(TARGET LancelotPlayer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/shaders" "$<TARGET_FILE_DIR:LancelotPlayer>/shaders")
 target_sources(LancelotEngine PRIVATE ${SHADER_FILES})
 set_source_files_properties(${SHADER_FILES} PROPERTIES HEADER_FILE_ONLY TRUE)
 
+if(LANCELOT_BUILD_EDITOR)
 add_custom_command(
     TARGET OpenGLPractice POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -286,16 +314,14 @@ add_custom_command(
         "$<TARGET_FILE_DIR:OpenGLPractice>/shaders"
     COMMENT "Copying GLSL shader files next to the executable"
 )
+endif()
 
 target_link_libraries(LancelotEngine
     PUBLIC
         glfw
-        imgui
-        imguizmo
         glad_gl_core_33
         glm::glm
         opengl32
-        imm32
 )
 
 target_include_directories(LancelotEngine
@@ -309,14 +335,28 @@ target_include_directories(LancelotEngine
 
 include(CTest)
 if(BUILD_TESTING)
+    if(LANCELOT_BUILD_EDITOR)
     add_executable(SceneEditorTests tests/SceneEditorTests.cpp)
     target_include_directories(SceneEditorTests PRIVATE "${CMAKE_SOURCE_DIR}/include")
-    target_link_libraries(SceneEditorTests PRIVATE LancelotEngine)
+    target_link_libraries(SceneEditorTests PRIVATE LancelotEditor imguizmo)
     add_test(NAME SceneEditorTests COMMAND SceneEditorTests)
+    add_executable(SceneWorkflowTests tests/SceneWorkflowTests.cpp)
+    target_link_libraries(SceneWorkflowTests PRIVATE LancelotEditor)
+    add_test(NAME SceneWorkflowTests COMMAND SceneWorkflowTests)
+    add_executable(PlaySessionTests tests/PlaySessionTests.cpp)
+    target_link_libraries(PlaySessionTests PRIVATE LancelotEditor LancelotProjectScripts)
+    add_test(NAME PlaySessionTests COMMAND PlaySessionTests)
+    endif()
+    add_executable(RuntimeSessionTests tests/RuntimeSessionTests.cpp)
+    target_link_libraries(RuntimeSessionTests PRIVATE LancelotEngine LancelotProjectScripts)
+    add_test(NAME RuntimeSessionTests COMMAND RuntimeSessionTests)
+    add_executable(AssetsRuntimeTests tests/AssetsRuntimeTests.cpp)
+    target_link_libraries(AssetsRuntimeTests PRIVATE LancelotEngine)
+    add_test(NAME AssetsRuntimeTests COMMAND AssetsRuntimeTests "${CMAKE_SOURCE_DIR}")
     add_executable(ProjectTests tests/ProjectTests.cpp)
     target_link_libraries(ProjectTests PRIVATE LancelotEngine)
     add_test(NAME ProjectTests COMMAND ProjectTests "${CMAKE_SOURCE_DIR}/projects/Sandbox/Sandbox.lancelot")
-    add_executable(PlaySessionTests tests/PlaySessionTests.cpp)
-    target_link_libraries(PlaySessionTests PRIVATE LancelotProjectScripts)
-    add_test(NAME PlaySessionTests COMMAND PlaySessionTests)
+    add_executable(EngineBoundaryTests tests/EngineBoundaryTests.cpp)
+    target_link_libraries(EngineBoundaryTests PRIVATE LancelotEngine)
+    add_test(NAME EngineBoundaryTests COMMAND EngineBoundaryTests)
 endif()

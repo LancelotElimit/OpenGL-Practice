@@ -23,6 +23,7 @@ public:
     GltfAnimatedModel& operator=(const GltfAnimatedModel&) = delete;
 
     bool valid() const;
+    float playbackTime() const { return playbackTime_; }
     void update(float timeSeconds);
     void resetPlayback() { playbackTime_=0; lastUpdateTime_=-1; blendRemaining_=0; previousClipPose_.clear(); }
     void draw(

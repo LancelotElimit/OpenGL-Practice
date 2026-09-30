@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetLibrary.h"
 #include "BlurBuffer.h"
 #include "EnvironmentIBL.h"
 #include "Fluid2D.h"
@@ -11,10 +12,11 @@
 #include "RenderTarget.h"
 #include "ShaderProgram.h"
 #include "ShadowMap.h"
+#include "SimulationRuntime.h"
 
-#include <filesystem>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <unordered_map>
 
@@ -28,69 +30,46 @@ class PbrMaterial;
 class Scene;
 class Texture2D;
 
-struct RendererStats {
+struct RendererStats : SimulationStats {
     std::uint64_t drawCalls = 0;
     std::uint64_t submittedTriangles = 0;
     std::size_t visibleInstances = 0;
     std::size_t totalInstances = 0;
-    std::size_t liveParticles = 0;
-    std::size_t fluidParticles = 0;
-    std::size_t fluidTriangles = 0;
-    float fluidUpdateMs = 0.0f;
-    std::size_t gpuParticleSlots = 0;
-    float smokeUpdateMs = 0.0f;
-    int smokePasses = 0;
 };
 
 class Renderer {
-public:
-    Renderer(
-        const std::filesystem::path& shaderDirectory,
-        const std::filesystem::path& environmentPath,
-        const std::filesystem::path& animatedModelPath
-    );
+  public:
+    Renderer(const std::filesystem::path &shaderDirectory,
+             const std::filesystem::path &environmentPath, SimulationRuntime &simulations,
+             AssetLibrary &assets);
     ~Renderer();
 
-    Renderer(const Renderer&) = delete;
-    Renderer& operator=(const Renderer&) = delete;
+    Renderer(const Renderer &) = delete;
+    Renderer &operator=(const Renderer &) = delete;
 
     bool valid() const;
     void resetSimulation();
-    const RendererStats& stats() const;
+    AssetLibrary &assets() { return assets_; }
+    SimulationRuntime &simulations() { return simulations_; }
+    const RendererStats &stats() const;
     GLuint viewportTexture() const;
     void setShowOnlyImportedModel(bool enabled);
     void resetParticleEmitter(std::uint32_t id);
-    bool& showGltfModel();
-    GltfAnimatedModel& gltfModel();
-    GltfScene& gltfScene();
-    bool& showGltfScene();
-    FluidSystem& fluidSystem(std::uint32_t id);
-    Fluid2D& smoke2D(std::uint32_t id);
-    void render(
-        const Scene& scene,
-        const Camera& camera,
-        int framebufferWidth,
-        int framebufferHeight,
-        Mesh& modelMesh,
-        const Mesh& floorMesh,
-        const Mesh& debugMesh,
-        const Model& model,
-        const Texture2D& fallbackTexture,
-        const Texture2D& normalTexture,
-        const MaterialLibrary& materialLibrary,
-        const PbrMaterial& floorMaterial,
-        bool showShadowMap,
-        bool useGrayscale,
-        bool bloomEnabled,
-        float exposure,
-        float modelMetallic,
-        float modelRoughness,
-        float timeSeconds,
-        bool updateSimulation=true
-    );
+    bool &showGltfModel();
+    GltfScene &gltfScene();
+    bool &showGltfScene();
+    FluidSystem &fluidSystem(std::uint32_t id);
+    Fluid2D &smoke2D(std::uint32_t id);
+    void render(const Scene &scene, const Camera &camera, int framebufferWidth,
+                int framebufferHeight, Mesh &modelMesh, const Mesh &floorMesh,
+                const Mesh &debugMesh, const Model &model, const Texture2D &fallbackTexture,
+                const Texture2D &normalTexture, const MaterialLibrary &materialLibrary,
+                const PbrMaterial &floorMaterial, bool showShadowMap, bool useGrayscale,
+                bool bloomEnabled, float exposure, float modelMetallic, float modelRoughness,
+                float timeSeconds);
     void destroy();
 
-private:
+  private:
     void configureStaticUniforms();
 
     ShaderProgram mainProgram_;
@@ -101,14 +80,8 @@ private:
     ShaderProgram blurProgram_;
     ShaderProgram postprocessProgram_;
     EnvironmentIBL environmentIbl_;
-    GltfAnimatedModel animatedModel_;
-    GltfScene gltfScene_;
-    std::filesystem::path particleShaderDirectory_;
-    std::unordered_map<std::uint32_t, std::unique_ptr<ParticleSystem>> cpuEmitters_;
-    std::unordered_map<std::uint32_t, std::unique_ptr<GpuParticleSystem>> gpuEmitters_;
-    float lastParticleTime_ = 0.0f;
-    std::unordered_map<std::uint32_t,std::unique_ptr<Fluid2D>> smokeObjects_;
-    std::unordered_map<std::uint32_t,std::unique_ptr<FluidSystem>> waterObjects_;
+    SimulationRuntime &simulations_;
+    AssetLibrary &assets_;
 
     ShadowMap2D spotlightShadowMap_;
     ShadowCubeMap pointShadowMap_;

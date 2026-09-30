@@ -1,5 +1,4 @@
 #include "Camera.h"
-#include <GLFW/glfw3.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
@@ -9,29 +8,15 @@ Camera::Camera(glm::vec3 position, float yaw, float pitch)
     updateFrontFromAngles();
 }
 
-void Camera::processKeyboard(GLFWwindow* window, float deltaTime) {
+void Camera::move(float rightAxis, float forwardAxis, float deltaTime) {
     const float velocity = 2.5f * deltaTime;
     const glm::vec3 right =
         glm::normalize(glm::cross(front_, worldUp_));
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        position_ += velocity * front_;
-    }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        position_ -= velocity * front_;
-    }
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-        position_ -= velocity * right;
-    }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-        position_ += velocity * right;
-    }
+    position_ += velocity * (front_ * forwardAxis + right * rightAxis);
 }
 
-void Camera::processMouse(GLFWwindow* window) {
-    double mouseX = 0.0;
-    double mouseY = 0.0;
-    glfwGetCursorPos(window, &mouseX, &mouseY);
+void Camera::rotateFromPointer(double mouseX, double mouseY) {
 
     if (firstMouseSample_) {
         lastMouseX_ = mouseX;

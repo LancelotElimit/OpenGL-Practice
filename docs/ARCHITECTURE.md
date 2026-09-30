@@ -2,9 +2,168 @@
 
 本次整理的目标是把“学习用的单文件渲染器”变成更容易继续扩展的项目，同时保留原有的模型、纹理、光照、阴影和场景树功能。
 
-## 一帧的责任边界
+## 第一阶段：引擎与编辑器边界（已完成）
 
-`main_clean.cpp` 只负责组织顶层流程：
+第一阶段拆分 Engine/Editor，后续第二、三、四阶段已接入，见下文。本轮不增加光照公式，也不改为完整 ECS。
+
+### 编译依赖
+
+```text
+LancelotPlayer ──→ LancelotEngine + LancelotProjectScripts（无编辑器）
+OpenGLPractice（编辑器启动程序）
+├─ LancelotEditor ──→ LancelotEngine
+│  ├─ ImGui / ImGuizmo
+│  └─ Windows IME 适配
+└─ LancelotProjectScripts ──→ LancelotEngine
+   └─ projects/Sandbox/Scripts
+
+LancelotEngine ──→ GLFW / GLAD / GLM / OpenGL
+                 不依赖 ImGui、ImGuizmo 或编辑器头文件
+```
+
+引擎和项目脚本不依赖编辑器；编辑器依赖引擎。项目数据通过
+`.lancelot` 和 `scene.json` 提供，不把示例对象硬编码进引擎。
+项目脚本仍为静态编译注册，不是动态模块或热重载系统。
+
+### 目录与责任
+
+| 位置 | 责任 |
+| --- | --- |
+| `include/`、`src/` | 引擎接口与实现：场景、相机、资源、模拟、渲染、窗口 |
+| `editor/include/`、`editor/src/` | 编辑器宿主、工作区、面板、输入分发与 SceneHistory |
+| `projects/Sandbox/Scripts/` | 项目行为脚本 |
+| `projects/*/*.lancelot`、`scene.json` | 项目配置与场景数据 |
+| `shaders/` | 引擎使用的 GLSL |
+| `tests/` | 场景、项目、运行生命周期与依赖边界测试 |
+
+`EngineApplication` 是可复用的引擎会话：初始化资源，拥有窗口、场景、相机和
+Renderer，并提供渲染入口。它不创建 UI，也不接管宿主主循环。
+`EditorApplication` 才负责每帧组织、编辑/运行切换和最终 UI 呈现。
+引擎会话通过 RAII 回收资源，GPU 资源在 OpenGL Context 销毁前释放；
+编辑器 UI 与运行会话先于引擎销毁。
+
+### 一帧的宿主流程
+
+```text
+FrameClock：真实帧间隔
+    ↓
+应用上一帧工具栏命令（避免绘制 UI 时替换活动场景）
+    ↓
+InputSystem：采样 GLFW 键鼠状态
+    ↓
+EditorInputRouter：处理全局快捷键与编辑/游戏输入分流
+    ↓
+EditorWorkspace.beginFrame：视图尺寸与输入焦点
+    ↓
+PlaySession：更新脚本，选择编辑场景或运行场景
+    ↓
+Scene 世界矩阵 → EngineApplication.update → SimulationRuntime
+    ↓
+EngineApplication.render → Renderer（只提交绘制）
+    ↓
+EditorWorkspace：组合各面板 → 交换窗口缓冲 → 处理事件
+```
+
+`FrameClock` 区分真实帧间隔和模拟步长上限：FPS 采用真实时间，模拟步长
+限制在 0～50ms，避免长帧造成过大的更新。该工具不是固定步物理调度器。
+
+`InputSystem` 只采样平台状态，不决定哪个对象接收输入。
+`EditorInputRouter` 根据编辑/运行模式、文本输入和 Scene View 焦点分发输入；
+运行时使用 ImGui 键事件补充短按，减少只采样按住状态造成的漏键。
+`Camera` 接收移动轴和指针坐标，不再自己查询 GLFW 键盘。
+
+### 面板拆分
+
+`EditorWorkspace` 保留字体、主题、Docking、菜单、Scene View 和共享选择状态，
+不再把所有窗口实现放进同一个大文件：
+
+```text
+EditorWorkspace
+├─ HierarchyPanel：对象目录
+├─ InspectorPanel：对象属性与脚本参数
+├─ ResourceBrowserPanel：目录、筛选、选择与导入入口
+├─ OutputPanel：运行日志
+├─ ProfilerPanel：统计与帧时间历史
+├─ SmokePanel：选定烟雾对象的实验交互
+├─ WaterPanel：选定水对象的实验交互
+└─ SelectionController：拾取、快捷键与变换工具
+```
+
+面板各自保存窗口开关、浏览器目录/筛选、性能历史或模拟目标 ID。
+共享选择与 Gizmo 状态仍由工作区协调；这是职责拆分，
+并非已经实现独立服务、组件化场景或编辑器插件接口。
+
+### 构建与验证
+
+默认 `LANCELOT_BUILD_EDITOR=ON` 构建完整编辑器。只构建引擎时：
+
+```powershell
+cmake -S . -B out/build/engine-only -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLANCELOT_BUILD_EDITOR=OFF -DLANCELOT_FETCH_SAMPLE_ASSETS=OFF
+cmake --build out/build/engine-only
+ctest --test-dir out/build/engine-only --output-on-failure
+```
+
+在已配置 Visual Studio C++ 工具链的终端运行；关闭示例资产下载不关闭基础依赖下载。
+纯引擎配置不会创建或下载 ImGui/ImGuizmo 目标，仍构建项目脚本库、引擎测试和 LancelotPlayer；尚无安装包或自动打包流水线。
+
+本轮验证：编辑器完整构建与 7 项测试通过；纯引擎/Player 独立构建与 4 项测试通过。
+其中 AssetsRuntimeTests 使用隐藏的真实 OpenGL Context，验证不同 OBJ/glTF 同时导入、
+资源复用、独立绑定、实际帧缓冲内容、暂停与重复绘制不推进模拟，以及 Player 呈现无 GL 错误。
+桌面冒烟检查通过 Play/WASD/Pause/Step/Stop、位置修改的撤销/重做及拖放改父节点；测试编辑已撤销，未保存场景。资源导入/绑定的鼠标流程仍建议按 [编辑工作流](EDITOR_WORKFLOW.md) 补充检查。
+
+## 第二阶段：组件与资源边界（已接入）
+
+- TransformComponent：局部 TRS；ScriptBinding：脚本参数；ModelComponent：资源引用、动画和 OBJ 材质覆盖。
+- 保留浅继承，模拟、灯光、环境等继续组合数据设置；不是任意可插拔 ECS。
+- AssetReference 使用相对项目 assetRoot 的路径（可引用外部绝对路径），不是 GPU 编号，也不是自动追踪移动的 GUID。
+- AssetLibrary 按规范化路径缓存多个 OBJ、静态 glTF；OBJ 使用引擎会话共享 TextureCache。
+  glTF 内部纹理仍由对应 glTF 资源拥有，并未统一为全局去重纹理服务。
+- 资源浏览器导入创建新对象，不替换所有同类对象；可绑定选中对象，也可拖入场景或 Inspector。
+- 每个蒙皮对象独立保存片段/速度/播放设置，运行实例独立；当前蒙皮加载器仍只支持一个蒙皮 Primitive。
+- 缓存保留到项目关闭；删除对象不删除资源文件。文件重载、异步导入、缓存淘汰仍未实现。
+
+## 第三阶段：更新与绘制分离（已接入）
+
+```text
+EngineApplication（拥有 Context 和资源生命周期）
+├─ Scene：可保存的数据，派生世界矩阵
+├─ AssetLibrary：导入与 GPU 模型缓存
+├─ SimulationRuntime：ID → 粒子 / 水 / 烟雾 / 蒙皮运行实例
+└─ Renderer：借用上述资源，提交阴影、颜色、透明与后处理 Pass
+
+宿主：脚本 → 世界矩阵 → 模拟/动画 → 绘制 → UI/呈现
+```
+
+Renderer::render 不更新粒子、流体或动画。EngineApplication::update 显式决定是否推进；
+暂停仍同步对象存活状态，但不积分。新/删除的模拟对象在同步阶段创建/回收独立实例。
+开始、停止和历史恢复会重置模拟状态，避免已恢复的 ID 误用旧缓冲。
+模拟类仍同时含更新与绘图资源，这是 OpenGL 教学实现的内部结构；
+并未将每个模拟器继续拆成纯数学求解器与独立 GPU 呈现器。
+每个水/烟雾求解器保留自己的固定步逻辑，尚无统一物理调度或多线程任务图。
+
+## 第四阶段：编辑工作流与运行宿主（已接入）
+
+- 父子层级：目录树、拖放/Inspector 改父节点；默认保持世界 TRS。
+  拒绝循环和缺失父节点；无法由 TRS 表示的剪切会拒绝，避免偷偷改坏模型。
+- 世界 Gizmo 写回父节点下的局部 TRS；父节点的变换/可见性传给子节点。
+  复制/删除针对整个子树，复制重映射 ID 并取消主角资格。
+- SceneHistory：最多 64 步作者数据快照；连续拖动/输入在结束时合为一条，
+  Ctrl+Z 撤销、Ctrl+Y 或 Ctrl+Shift+Z 重做。新编辑清空重做分支。
+  不撤销相机导航、窗口布局、全局渲染选项或实时模拟缓冲。
+- 持久化：保存稳定 ID、父节点、模型资源与组件设置；兼容不含新字段的 v1 场景。
+  每个文件先写临时文件再替换，并保留 .bak；场景和描述文件不是跨文件原子事务。
+- RuntimeSession 位于引擎，无 ImGui；编辑器 PlaySession 只是兼容别名。
+  暂停工具栏 Step 推进 1/60 秒并保持暂停；Stop 丢弃运行副本，不写回作者场景。
+- LancelotPlayer 是独立运行宿主：打开 .lancelot、执行已编译项目脚本、WASD 控制，
+  Esc 暂停/恢复，不链接 ImGui 或编辑器。
+
+撤销/重做不是磁盘版本管理；运行中的水粒子、烟雾纹理/障碍、模拟时间不保存。
+脚本热重载、碰撞/导航、全局任意组件编辑、多 Skin、统一 glTF 材质/蒙皮路径和体积流体
+均不属于这轮已完成项。操作示例见 [编辑工作流](EDITOR_WORKFLOW.md)。
+
+## 渲染帧的责任边界
+
+`editor/src/EditorApplication.cpp` 组织宿主循环；渲染侧流程如下：
 
 ```text
 读取输入
@@ -42,7 +201,7 @@ CMake 会在构建后把 `shaders/` 复制到可执行文件旁边；开发时�
 
 ### Camera
 
-`Camera` 保存摄像机位置、前方向、yaw 和 pitch。它把键盘、鼠标输入转换成：
+`Camera` 保存摄像机位置、前方向、yaw 和 pitch。输入由宿主分发；它根据移动轴和指针坐标更新姿态，并生成：
 
 ```cpp
 glm::mat4 view = camera.viewMatrix();

@@ -7,7 +7,7 @@
 
 class Window {
 public:
-    Window(int width, int height, const char* title);
+    Window(int width, int height, const char* title, bool visible=true);
     ~Window();
 
     Window(const Window&) = delete;
