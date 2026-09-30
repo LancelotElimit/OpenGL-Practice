@@ -1,4 +1,5 @@
 #include "AssetLibrary.h"
+#include "AssetFormats.h"
 #include "GltfAnimatedModel.h"
 #include <algorithm>
 #include <glm/gtc/matrix_transform.hpp>
@@ -32,7 +33,7 @@ AssetLibrary::ObjAsset *AssetLibrary::obj(const AssetReference &ref) {
     }
     auto asset = std::make_unique<ObjAsset>();
     if (!asset->model.load(path) || asset->model.indices().empty()) {
-        status_ = "OBJ import failed: " + key;
+        status_ = "Model import failed: " + key + ": " + asset->model.status();
         failures_[key] = status_;
         return nullptr;
     }
@@ -57,7 +58,7 @@ AssetLibrary::ObjAsset *AssetLibrary::obj(const AssetReference &ref) {
         std::make_shared<const std::vector<glm::vec3>>(std::move(triangles));
     auto *result = asset.get();
     objs_.emplace(key, std::move(asset));
-    status_ = "Loaded OBJ: " + key;
+    status_ = "Loaded static model: " + key + " " + result->model.status();
     return result;
 }
 GltfScene *AssetLibrary::gltf(const AssetReference &ref) {
@@ -85,6 +86,13 @@ GltfScene *AssetLibrary::gltf(const AssetReference &ref) {
 }
 std::uint32_t AssetLibrary::importModel(Scene &scene, SceneObjectKind kind,
                                         const std::filesystem::path &path) {
+    if (!AssetFormats::model(path) ||
+        ((kind == SceneObjectKind::Gltf || kind == SceneObjectKind::Skinned) &&
+         !AssetFormats::gltf(path)) ||
+        (kind == SceneObjectKind::Obj && AssetFormats::gltf(path))) {
+        status_ = "Unsupported model format for this import mode.";
+        return 0;
+    }
     const auto ref = reference(path);
     failures_.erase(resolve(ref).generic_string());
     if (kind == SceneObjectKind::Obj && !obj(ref))
@@ -107,7 +115,13 @@ std::uint32_t AssetLibrary::importModel(Scene &scene, SceneObjectKind kind,
     object.model.asset = ref;
     prepare(scene);
     status_ = "Added independent model: " + path.filename().string();
+    if (kind == SceneObjectKind::Obj && AssetFormats::extension(path) != ".obj")
+        status_ += " " + obj(ref)->model.status();
     return id;
+}
+std::uint32_t AssetLibrary::importModel(Scene &scene, const std::filesystem::path &path) {
+    return importModel(
+        scene, AssetFormats::gltf(path) ? SceneObjectKind::Gltf : SceneObjectKind::Obj, path);
 }
 void AssetLibrary::prepare(Scene &scene) {
     for (const auto &item : scene.objects()) {
@@ -147,18 +161,17 @@ bool AssetLibrary::bindModel(Scene &scene, std::uint32_t id, const std::filesyst
     }
     const auto ref = reference(path);
     failures_.erase(resolve(ref).generic_string());
-    const auto extension = path.extension().string();
-    if (object->kind == SceneObjectKind::Obj && extension != ".obj") {
-        status_ = "OBJ objects require an OBJ asset.";
+    if (!AssetFormats::model(path) ||
+        (object->kind == SceneObjectKind::Skinned && !AssetFormats::gltf(path))) {
+        status_ = "Unsupported model format. Animated objects require glTF/GLB.";
         return false;
     }
-    if (object->kind != SceneObjectKind::Obj && extension != ".gltf" && extension != ".glb") {
-        status_ = "glTF objects require glTF/GLB.";
+    const auto kind = object->kind == SceneObjectKind::Skinned ? SceneObjectKind::Skinned
+                      : AssetFormats::gltf(path)               ? SceneObjectKind::Gltf
+                                                               : SceneObjectKind::Obj;
+    if (kind == SceneObjectKind::Obj && !obj(ref))
         return false;
-    }
-    if (object->kind == SceneObjectKind::Obj && !obj(ref))
-        return false;
-    if (object->kind == SceneObjectKind::Gltf && !gltf(ref))
+    if (kind == SceneObjectKind::Gltf && !gltf(ref))
         return false;
     if (object->kind == SceneObjectKind::Skinned) {
         GltfAnimatedModel validation(shaders_, resolve(ref));
@@ -167,6 +180,7 @@ bool AssetLibrary::bindModel(Scene &scene, std::uint32_t id, const std::filesyst
             return false;
         }
     }
+    object->kind = kind;
     object->model.asset = ref;
     object->model.clip = 0;
     prepare(scene);

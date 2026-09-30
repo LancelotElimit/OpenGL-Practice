@@ -4,6 +4,8 @@
 #include <array>
 #include <string>
 #include <vector>
+#include "MediaPreview.h"
+#include "Texture2D.h"
 class EditorWorkspace;
 class Renderer;
 class Camera;
@@ -11,43 +13,58 @@ class Scene;
 struct RendererStats;
 // Views share workspace selection/context, but do not own engine lifetimes.
 struct HierarchyPanel {
-    bool open=true;
-    static void draw(EditorWorkspace& ui, Renderer& renderer, Scene& scene);
+    bool open = true;
+    static void draw(EditorWorkspace &ui, Renderer &renderer, Scene &scene);
 };
 struct InspectorPanel {
-    bool open=true;
-    static void draw(EditorWorkspace& ui, Renderer& renderer, Camera& camera, Scene& scene, float& metallic, float& roughness, float& exposure, bool& bloomEnabled);
+    bool open = true;
+    static void draw(EditorWorkspace &ui, Renderer &renderer, Camera &camera, Scene &scene,
+                     float &metallic, float &roughness, float &exposure, bool &bloomEnabled);
 };
 struct ResourceBrowserPanel {
-    bool open=true;
-    std::array<char,512> path{};
+    bool open = true;
+    std::array<char, 512> path{};
     std::string directory, selected;
-    std::array<char,128> filter{};
-    static void draw(EditorWorkspace& ui, Renderer& renderer, Scene& scene);
+    std::array<char, 128> filter{};
+    int category = 0;
+    static void draw(EditorWorkspace &ui, Renderer &renderer, Scene &scene);
+};
+struct AssetPreviewPanel {
+    bool open = false;
+    std::string source, error;
+    Texture2D image;
+    MediaPreview media;
+    int width = 0, height = 0;
+    float volume = .5f;
+    static void load(EditorWorkspace &ui, const std::filesystem::path &path);
+    static void draw(EditorWorkspace &ui);
 };
 struct OutputPanel {
-    bool open=true;
+    bool open = true;
     std::vector<std::string> messages;
-    static void draw(EditorWorkspace& ui, Renderer& renderer);
+    static void draw(EditorWorkspace &ui, Renderer &renderer);
 };
 struct ProfilerPanel {
-    bool open=true;
-    static constexpr std::size_t HistorySize=120;
-    std::array<float,HistorySize> frameTimes{};
-    std::size_t offset=0;
-    static void draw(EditorWorkspace& ui, const RendererStats& stats, float fps, float deltaTime, std::size_t cachedTextureCount);
+    bool open = true;
+    static constexpr std::size_t HistorySize = 120;
+    std::array<float, HistorySize> frameTimes{};
+    std::size_t offset = 0;
+    static void draw(EditorWorkspace &ui, const RendererStats &stats, float fps, float deltaTime,
+                     std::size_t cachedTextureCount);
 };
 struct SmokePanel {
-    bool open=false;
-    std::uint32_t activeObject=0;
-    static void draw(EditorWorkspace& ui, Renderer& renderer, Scene& scene, bool interactive);
+    bool open = false;
+    std::uint32_t activeObject = 0;
+    static void draw(EditorWorkspace &ui, Renderer &renderer, Scene &scene, bool interactive);
 };
 struct WaterPanel {
-    bool open=false;
-    std::uint32_t activeObject=0;
-    static void draw(EditorWorkspace& ui, Renderer& renderer, Scene& scene, Camera& camera, const RendererStats& stats);
+    bool open = false;
+    std::uint32_t activeObject = 0;
+    static void draw(EditorWorkspace &ui, Renderer &renderer, Scene &scene, Camera &camera,
+                     const RendererStats &stats);
 };
 struct SelectionController {
-    static void draw(EditorWorkspace& ui, Renderer& renderer, Camera& camera, Scene& scene, bool interactive);
-    static void actions(EditorWorkspace& ui, Scene& scene);
+    static void draw(EditorWorkspace &ui, Renderer &renderer, Camera &camera, Scene &scene,
+                     bool interactive);
+    static void actions(EditorWorkspace &ui, Scene &scene);
 };

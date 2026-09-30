@@ -1,4 +1,5 @@
 #include "EditorTheme.h"
+#include "AssetFormats.h"
 #include "EditorLocale.h"
 #include "EditorWorkspace.h"
 #include "PlaySession.h"
@@ -189,6 +190,7 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
             ImGui::MenuItem(EditorLocale::label("Hierarchy"), nullptr, &hierarchy_.open);
             ImGui::MenuItem(EditorLocale::label("Inspector"), nullptr, &inspector_.open);
             ImGui::MenuItem(EditorLocale::label("Resource Browser"), nullptr, &resources_.open);
+            ImGui::MenuItem(EditorLocale::label("Asset Preview"), nullptr, &preview_.open);
             ImGui::MenuItem(EditorLocale::label("Output"), nullptr, &output_.open);
             ImGui::MenuItem(EditorLocale::label("Profiler"), nullptr, &profiler_.open);
             ImGui::MenuItem(EditorLocale::label("2D Smoke Lab"), nullptr, &smoke_.open);
@@ -277,6 +279,7 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
         ImGui::DockBuilderDockWindow(EditorLocale::label("Profiler"), bottom);
         ImGui::DockBuilderDockWindow(EditorLocale::label("Output"), bottom);
         ImGui::DockBuilderDockWindow(EditorLocale::label("Resource Browser"), bottom);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Asset Preview"), bottom);
         ImGui::DockBuilderFinish(dockspace);
         resetLayout_ = false;
     }
@@ -314,9 +317,7 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
         if (!play_.active() && ImGui::BeginDragDropTarget()) {
             if (const auto *payload = ImGui::AcceptDragDropPayload("MODEL_ASSET")) {
                 const std::filesystem::path path(static_cast<const char *>(payload->Data));
-                const auto kind =
-                    path.extension() == ".obj" ? SceneObjectKind::Obj : SceneObjectKind::Gltf;
-                if (auto id = renderer.assets().importModel(scene, kind, path)) {
+                if (auto id = renderer.assets().importModel(scene, path)) {
                     selectedObject_ = id;
                     renderer.showGltfScene() = true;
                 }
@@ -375,6 +376,7 @@ void EditorWorkspace::draw(Renderer &renderer, Camera &camera, Scene &scene,
                          bloomEnabled);
     ResourceBrowserPanel::draw(*this, renderer, scene);
     ImGui::EndDisabled();
+    AssetPreviewPanel::draw(*this);
     OutputPanel::draw(*this, renderer);
     ProfilerPanel::draw(*this, stats, fps, deltaTime, cachedTextureCount);
     ImGui::BeginDisabled(play_.active());

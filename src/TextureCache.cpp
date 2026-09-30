@@ -2,6 +2,26 @@
 
 #include <system_error>
 #include <utility>
+#include <vector>
+#include <algorithm>
+
+const Texture2D* TextureCache::loadEmbedded(const std::string& sourceKey, const unsigned char* bytes,
+                                           std::size_t size, int width, int height) {
+    const std::string key = "embedded|" + sourceKey;
+    if (auto it = textures_.find(key); it != textures_.end()) return &it->second;
+    Texture2D texture;
+    if (!height) {
+        if (!texture.loadMemory(bytes, size, true)) return nullptr;
+    } else {
+        if (width <= 0 || height <= 0 || size != static_cast<std::size_t>(width) * height * 4) return nullptr;
+        std::vector<unsigned char> flipped(size);
+        const std::size_t row = static_cast<std::size_t>(width) * 4;
+        for (int y = 0; y < height; ++y)
+            std::copy_n(bytes + y * row, row, flipped.data() + (height - y - 1) * row);
+        texture.createRGBA(width, height, flipped.data());
+    }
+    return &textures_.emplace(key,std::move(texture)).first->second;
+}
 
 const Texture2D* TextureCache::load(
     const std::filesystem::path& path,

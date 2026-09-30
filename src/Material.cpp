@@ -17,10 +17,13 @@ void MaterialLibrary::loadForModel(
             continue;
         }
 
-        const Texture2D* texture = textureCache.load(
-            modelDirectory / textureName,
-            true
-        );
+        const auto embedded = model.embeddedImages().find(textureName);
+        const Texture2D* texture = embedded == model.embeddedImages().end() ?
+            textureCache.load(modelDirectory / textureName, true) :
+            textureCache.loadEmbedded(modelDirectory.generic_string() + "/" +
+                std::to_string(reinterpret_cast<std::uintptr_t>(&model)) + "/" + textureName,
+                embedded->second.bytes.data(), embedded->second.bytes.size(),
+                embedded->second.width, embedded->second.height);
         if (texture != nullptr) {
             diffuseTextures_.emplace(textureName, texture);
         }

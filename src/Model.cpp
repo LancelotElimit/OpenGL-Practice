@@ -1,4 +1,5 @@
 #include "Model.h"
+#include "AssetFormats.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -37,6 +38,16 @@ bool Model::load(
     const std::filesystem::path& path,
     const std::string& excludedObjectName
 ) {
+    embedded_.clear();
+    status_.clear();
+    if (AssetFormats::extension(path) != ".obj") {
+        try {
+            return loadAssimp(path);
+        } catch (const std::exception& error) {
+            status_ = error.what();
+            return false;
+        }
+    }
     tinyobj::attrib_t attributes;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
@@ -59,6 +70,7 @@ bool Model::load(
         std::cerr << "OBJ warning: " << warning << '\n';
     }
     if (!loaded) {
+        status_ = error;
         std::cerr << "Could not load OBJ: " << error << '\n';
         return false;
     }

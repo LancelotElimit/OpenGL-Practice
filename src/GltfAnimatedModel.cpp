@@ -1,5 +1,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "GltfAnimatedModel.h"
+#include "AssetFormats.h"
 
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE
@@ -125,12 +126,10 @@ bool GltfAnimatedModel::load(const std::filesystem::path& modelPath) {
     tinygltf::Model model;
     std::string warning;
     std::string error;
-    if (!loader.LoadASCIIFromFile(
-            &model,
-            &error,
-            &warning,
-            modelPath.string()
-        )) {
+    const bool loaded = AssetFormats::extension(modelPath) == ".glb" ?
+        loader.LoadBinaryFromFile(&model,&error,&warning,modelPath.string()) :
+        loader.LoadASCIIFromFile(&model,&error,&warning,modelPath.string());
+    if (!loaded) {
         std::cerr << "Could not load glTF: " << error << '\n';
         return false;
     }

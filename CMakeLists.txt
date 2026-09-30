@@ -8,6 +8,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 
+# Generic static mesh import. Keep the existing specialized OBJ/glTF paths.
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+foreach(FORMAT FBX COLLADA 3DS PLY STL OFF X DXF LWO LWS)
+    set(ASSIMP_BUILD_${FORMAT}_IMPORTER ON CACHE BOOL "" FORCE)
+endforeach()
+# Used by round-trip import fixtures, not by the runtime importer.
+set(ASSIMP_BUILD_FBX_EXPORTER ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(assimp
+    GIT_REPOSITORY https://github.com/assimp/assimp.git
+    GIT_TAG v5.4.3
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(assimp)
+
 # GLFW: window creation, input, and the OpenGL context.
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -211,6 +230,8 @@ add_library(LancelotEngine STATIC
     src/Project.cpp
     src/Input.cpp
     src/AssetLibrary.cpp
+    src/AssetFormats.cpp
+    src/AssimpModel.cpp
     src/SimulationRuntime.cpp
     src/RuntimeSession.cpp
     src/AssetPaths.cpp
@@ -252,6 +273,8 @@ if(LANCELOT_BUILD_EDITOR)
         editor/src/HierarchyPanel.cpp
         editor/src/InspectorPanel.cpp
         editor/src/ResourceBrowserPanel.cpp
+        editor/src/AssetPreviewPanel.cpp
+        editor/src/MediaPreview.cpp
         editor/src/OutputPanel.cpp
         editor/src/ProfilerPanel.cpp
         editor/src/SmokePanel.cpp
@@ -261,8 +284,18 @@ if(LANCELOT_BUILD_EDITOR)
     target_compile_options(LancelotEditor PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     target_include_directories(LancelotEditor PUBLIC "${CMAKE_SOURCE_DIR}/editor/include")
     target_link_libraries(LancelotEditor PUBLIC LancelotEngine PRIVATE imgui imguizmo imm32)
+    if(WIN32)
+        target_link_libraries(LancelotEditor PRIVATE mfplay mfplat mfuuid propsys ole32)
+    endif()
     add_executable(OpenGLPractice editor/src/EditorMain.cpp)
     target_link_libraries(OpenGLPractice PRIVATE LancelotEditor LancelotProjectScripts)
+    if(WIN32)
+        enable_language(RC)
+        target_sources(OpenGLPractice PRIVATE editor/resources/app.rc)
+        target_include_directories(OpenGLPractice PRIVATE "${CMAKE_SOURCE_DIR}/editor/resources")
+        set_source_files_properties(editor/resources/app.rc PROPERTIES
+            OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/editor/resources/app.ico")
+    endif()
 endif()
 
 set(SHADER_FILES
@@ -325,6 +358,7 @@ target_link_libraries(LancelotEngine
         glad_gl_core_33
         glm::glm
         opengl32
+    PRIVATE assimp::assimp
 )
 
 target_include_directories(LancelotEngine
@@ -339,6 +373,12 @@ target_include_directories(LancelotEngine
 include(CTest)
 if(BUILD_TESTING)
     if(LANCELOT_BUILD_EDITOR)
+    add_executable(MediaPreviewTests tests/MediaPreviewTests.cpp)
+    target_link_libraries(MediaPreviewTests PRIVATE LancelotEditor)
+    if(WIN32)
+        target_link_libraries(MediaPreviewTests PRIVATE mfreadwrite mfplat mfuuid ole32)
+    endif()
+    add_test(NAME MediaPreviewTests COMMAND MediaPreviewTests)
     add_executable(EditorLocaleTests tests/EditorLocaleTests.cpp)
     target_link_libraries(EditorLocaleTests PRIVATE LancelotEditor imgui)
     add_test(NAME EditorLocaleTests COMMAND EditorLocaleTests)
@@ -357,6 +397,9 @@ if(BUILD_TESTING)
     target_link_libraries(RuntimeSessionTests PRIVATE LancelotEngine LancelotProjectScripts)
     add_test(NAME RuntimeSessionTests COMMAND RuntimeSessionTests)
     add_executable(AssetsRuntimeTests tests/AssetsRuntimeTests.cpp)
+    add_executable(AssetFormatsTests tests/AssetFormatsTests.cpp)
+    target_link_libraries(AssetFormatsTests PRIVATE LancelotEngine assimp::assimp)
+    add_test(NAME AssetFormatsTests COMMAND AssetFormatsTests "${CMAKE_SOURCE_DIR}")
     target_link_libraries(AssetsRuntimeTests PRIVATE LancelotEngine)
     add_test(NAME AssetsRuntimeTests COMMAND AssetsRuntimeTests "${CMAKE_SOURCE_DIR}")
     add_executable(ProjectTests tests/ProjectTests.cpp)

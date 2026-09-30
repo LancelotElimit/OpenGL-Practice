@@ -1,4 +1,5 @@
 #include "GltfScene.h"
+#include "AssetFormats.h"
 
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
@@ -128,7 +129,7 @@ bool GltfScene::load(const std::filesystem::path& path) {
     loader.SetImageLoader(decodeImage, nullptr);
     tinygltf::Model model;
     std::string warning, error;
-    const bool parsed = path.extension() == ".glb"
+    const bool parsed = AssetFormats::extension(path) == ".glb"
         ? loader.LoadBinaryFromFile(&model, &error, &warning, path.string())
         : loader.LoadASCIIFromFile(&model, &error, &warning, path.string());
     if (!parsed) { status_ = error.empty() ? "glTF parse failed" : error; return false; }

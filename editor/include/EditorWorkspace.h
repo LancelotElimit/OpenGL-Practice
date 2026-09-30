@@ -48,6 +48,7 @@ class EditorWorkspace {
     friend struct HierarchyPanel;
     friend struct InspectorPanel;
     friend struct ResourceBrowserPanel;
+    friend struct AssetPreviewPanel;
     friend struct OutputPanel;
     friend struct ProfilerPanel;
     friend struct SmokePanel;
@@ -61,6 +62,7 @@ class EditorWorkspace {
     HierarchyPanel hierarchy_;
     InspectorPanel inspector_;
     ResourceBrowserPanel resources_;
+    AssetPreviewPanel preview_;
     OutputPanel output_;
     ProfilerPanel profiler_;
     SmokePanel smoke_;

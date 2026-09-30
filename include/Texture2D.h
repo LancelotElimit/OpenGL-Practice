@@ -3,6 +3,7 @@
 #include <glad/gl.h>
 
 #include <filesystem>
+#include <cstddef>
 
 class Texture2D {
 public:
@@ -16,6 +17,7 @@ public:
     Texture2D& operator=(Texture2D&& other) noexcept;
 
     bool loadRGBA(const std::filesystem::path& path, bool flipVertically);
+    bool loadMemory(const unsigned char* bytes, std::size_t size, bool flipVertically);
     void createRGBA(
         int width,
         int height,

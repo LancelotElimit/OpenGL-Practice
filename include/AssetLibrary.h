@@ -25,6 +25,7 @@ class AssetLibrary {
     GltfScene &legacyGltf() { return legacyGltf_; }
     const std::filesystem::path &defaultAnimated() const { return defaultAnimated_; }
     bool bindModel(Scene &scene, std::uint32_t id, const std::filesystem::path &path);
+    std::uint32_t importModel(Scene &scene, const std::filesystem::path &path);
     std::uint32_t importModel(Scene &scene, SceneObjectKind kind,
                               const std::filesystem::path &path);
     void prepare(Scene &scene);

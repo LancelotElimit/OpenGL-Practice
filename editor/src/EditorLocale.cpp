@@ -6,6 +6,18 @@
 namespace {
 EditorLanguage currentLanguage = EditorLanguage::Chinese;
 const std::unordered_map<std::string, std::string> translations = {
+    {"Asset Preview", "资源预览"},
+    {"Import / Preview", "导入 / 预览"},
+    {"Model", "模型"}, {"Image", "图片"}, {"Audio", "音频"}, {"Video", "视频"}, {"Other", "其他"},
+    {"All files", "全部文件"}, {"File type", "文件类型"},
+    {"Playback position", "播放进度"}, {"Volume", "音量"}, {"Close preview", "关闭预览"},
+    {"Image decoding failed.", "图片解码失败，请检查文件内容和格式。"},
+    {"This file has no built-in preview.", "此文件暂无内置预览。"},
+    {"Image preview (GIF uses its first frame).", "图片预览（GIF 显示第一帧）。"},
+    {"Playback uses Windows codecs. Video opens in a preview window.", "使用 Windows 解码器播放。视频将在独立预览窗口中显示。"},
+    {"Select an audio or video file.", "请选择音频或视频文件。"},
+    {"Media ready.", "媒体已就绪。"}, {"Loading media...", "正在加载媒体…"},
+    {"Media playback requires Windows.", "媒体播放需要 Windows。"},
     {"Unable to save language preference.", "无法保存语言偏好。"},
     {"File", "文件"},
     {"Open Project...", "打开项目…"},

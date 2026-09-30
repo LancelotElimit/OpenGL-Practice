@@ -1,0 +1,2 @@
+// GLFW's Windows backend automatically uses this named icon for its window class.
+GLFW_ICON ICON "app.ico"

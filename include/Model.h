@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include <glm/glm.hpp>
 
@@ -17,7 +18,11 @@ struct ModelPart {
     std::string diffuseTextureName;
 };
 
-// Loads OBJ geometry and keeps material splits, but does not own OpenGL VAOs.
+struct EmbeddedImage {
+    int width = 0, height = 0; // height == 0: compressed image bytes
+    std::vector<unsigned char> bytes;
+};
+// Static geometry with material splits. File format never reaches the renderer.
 class Model {
 public:
     static constexpr std::size_t VertexStrideFloats = 12;
@@ -33,8 +38,13 @@ public:
     std::vector<std::string> diffuseTextureNames() const;
     const glm::vec3& boundsCenter() const;
     float boundsRadius() const;
+    const std::string& status() const { return status_; }
+    const std::unordered_map<std::string, EmbeddedImage>& embeddedImages() const { return embedded_; }
 
 private:
+    bool loadAssimp(const std::filesystem::path& path);
+    std::string status_;
+    std::unordered_map<std::string, EmbeddedImage> embedded_;
     std::vector<float> vertices_;
     std::vector<std::uint32_t> indices_;
     std::vector<ModelPart> parts_;

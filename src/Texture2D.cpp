@@ -4,6 +4,18 @@
 #include <stb_image.h>
 
 #include <iostream>
+#include <limits>
+
+bool Texture2D::loadMemory(const unsigned char* bytes, std::size_t size, bool flipVertically) {
+    if (!bytes || size > static_cast<std::size_t>(std::numeric_limits<int>::max())) return false;
+    stbi_set_flip_vertically_on_load(flipVertically ? 1 : 0);
+    int width = 0, height = 0, channels = 0;
+    auto* pixels = stbi_load_from_memory(bytes, static_cast<int>(size), &width, &height, &channels, STBI_rgb_alpha);
+    if (!pixels) return false;
+    createRGBA(width, height, pixels);
+    stbi_image_free(pixels);
+    return true;
+}
 
 Texture2D::~Texture2D() {
     release();
