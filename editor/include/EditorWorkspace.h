@@ -74,6 +74,8 @@ class EditorWorkspace {
     void log(const std::string &message);
     bool valid_ = false;
     std::string iniPath_;
+    std::string preferencesPath_;
+    int pendingLanguage_ = -1;
     bool resetLayout_ = false;
     int startupFrames_ = 0;
     bool sceneNavigating_ = false;

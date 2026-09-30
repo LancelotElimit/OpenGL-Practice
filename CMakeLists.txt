@@ -247,6 +247,8 @@ if(LANCELOT_BUILD_EDITOR)
         editor/src/EditorApplication.cpp
         editor/src/EditorInputRouter.cpp
         editor/src/EditorWorkspace.cpp
+        editor/src/EditorLocale.cpp
+        editor/src/EditorTheme.cpp
         editor/src/HierarchyPanel.cpp
         editor/src/InspectorPanel.cpp
         editor/src/ResourceBrowserPanel.cpp
@@ -256,6 +258,7 @@ if(LANCELOT_BUILD_EDITOR)
         editor/src/WaterPanel.cpp
         editor/src/SelectionController.cpp
     )
+    target_compile_options(LancelotEditor PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     target_include_directories(LancelotEditor PUBLIC "${CMAKE_SOURCE_DIR}/editor/include")
     target_link_libraries(LancelotEditor PUBLIC LancelotEngine PRIVATE imgui imguizmo imm32)
     add_executable(OpenGLPractice editor/src/EditorMain.cpp)
@@ -336,6 +339,9 @@ target_include_directories(LancelotEngine
 include(CTest)
 if(BUILD_TESTING)
     if(LANCELOT_BUILD_EDITOR)
+    add_executable(EditorLocaleTests tests/EditorLocaleTests.cpp)
+    target_link_libraries(EditorLocaleTests PRIVATE LancelotEditor imgui)
+    add_test(NAME EditorLocaleTests COMMAND EditorLocaleTests)
     add_executable(SceneEditorTests tests/SceneEditorTests.cpp)
     target_include_directories(SceneEditorTests PRIVATE "${CMAKE_SOURCE_DIR}/include")
     target_link_libraries(SceneEditorTests PRIVATE LancelotEditor imguizmo)

@@ -1,0 +1,75 @@
+#include "EditorTheme.h"
+#include <imgui.h>
+
+void applyEditorTheme() {
+    ImGui::StyleColorsLight();
+    auto &style = ImGui::GetStyle();
+    style.FontSizeBase = 20.f;
+    style.FontScaleDpi = 1.f;
+    style.WindowPadding = {10, 10};
+    style.FramePadding = {8, 6};
+    style.ItemSpacing = {8, 8};
+    style.WindowRounding = 8;
+    style.ChildRounding = 6;
+    style.FrameRounding = 6;
+    style.PopupRounding = 8;
+    style.TabRounding = 6;
+    style.ScrollbarRounding = 8;
+    style.GrabRounding = 5;
+    style.WindowBorderSize = 1;
+    style.FrameBorderSize = 1;
+    auto &c = style.Colors;
+    // Ivory surfaces, dark ink and amber controls. No blue selection defaults.
+    c[ImGuiCol_Text] = {.24f, .18f, .13f, 1};
+    c[ImGuiCol_TextDisabled] = {.50f, .45f, .39f, 1};
+    c[ImGuiCol_WindowBg] = {.97f, .955f, .92f, 1};
+    c[ImGuiCol_ChildBg] = {.99f, .98f, .95f, 1};
+    c[ImGuiCol_PopupBg] = {.99f, .975f, .94f, 1};
+    c[ImGuiCol_Border] = {.70f, .60f, .47f, .65f};
+    c[ImGuiCol_BorderShadow] = {0, 0, 0, 0};
+    c[ImGuiCol_FrameBg] = {1, .99f, .96f, 1};
+    c[ImGuiCol_FrameBgHovered] = {1, .86f, .67f, 1};
+    c[ImGuiCol_FrameBgActive] = {1, .78f, .50f, 1};
+    c[ImGuiCol_TitleBg] = {.88f, .83f, .74f, 1};
+    c[ImGuiCol_TitleBgActive] = {.96f, .73f, .44f, 1};
+    c[ImGuiCol_TitleBgCollapsed] = {.88f, .83f, .74f, 1};
+    c[ImGuiCol_MenuBarBg] = {.94f, .88f, .77f, 1};
+    c[ImGuiCol_ScrollbarBg] = {.91f, .87f, .80f, 1};
+    c[ImGuiCol_ScrollbarGrab] = {.69f, .58f, .43f, 1};
+    c[ImGuiCol_ScrollbarGrabHovered] = {.58f, .45f, .30f, 1};
+    c[ImGuiCol_ScrollbarGrabActive] = {.46f, .33f, .21f, 1};
+    c[ImGuiCol_CheckMark] = {.72f, .25f, .12f, 1};
+    c[ImGuiCol_SliderGrab] = {.85f, .39f, .15f, 1};
+    c[ImGuiCol_SliderGrabActive] = {.67f, .23f, .09f, 1};
+    c[ImGuiCol_Button] = {.96f, .73f, .44f, 1};
+    c[ImGuiCol_ButtonHovered] = {.96f, .58f, .26f, 1};
+    c[ImGuiCol_ButtonActive] = {.86f, .40f, .17f, 1};
+    c[ImGuiCol_Header] = {.98f, .80f, .54f, 1};
+    c[ImGuiCol_HeaderHovered] = {.97f, .66f, .34f, 1};
+    c[ImGuiCol_HeaderActive] = {.93f, .54f, .23f, 1};
+    c[ImGuiCol_Separator] = {.73f, .64f, .51f, 1};
+    c[ImGuiCol_SeparatorHovered] = {.88f, .43f, .17f, 1};
+    c[ImGuiCol_SeparatorActive] = {.72f, .28f, .10f, 1};
+    c[ImGuiCol_ResizeGrip] = {.85f, .53f, .27f, .25f};
+    c[ImGuiCol_ResizeGripHovered] = {.85f, .43f, .17f, .65f};
+    c[ImGuiCol_ResizeGripActive] = {.85f, .43f, .17f, 1};
+    c[ImGuiCol_Tab] = {.89f, .84f, .75f, 1};
+    c[ImGuiCol_TabHovered] = {.97f, .66f, .34f, 1};
+    c[ImGuiCol_TabSelected] = {.98f, .78f, .48f, 1};
+    c[ImGuiCol_TabSelectedOverline] = {.72f, .25f, .12f, 1};
+    c[ImGuiCol_TabDimmed] = {.91f, .87f, .80f, 1};
+    c[ImGuiCol_TabDimmedSelected] = {.94f, .82f, .62f, 1};
+    c[ImGuiCol_TabDimmedSelectedOverline] = {.75f, .48f, .24f, 1};
+    c[ImGuiCol_DockingPreview] = {.96f, .58f, .26f, .55f};
+    c[ImGuiCol_DockingEmptyBg] = {.86f, .81f, .73f, 1};
+    c[ImGuiCol_PlotLines] = {.72f, .25f, .12f, 1};
+    c[ImGuiCol_PlotLinesHovered] = {.92f, .43f, .12f, 1};
+    c[ImGuiCol_PlotHistogram] = {.80f, .39f, .13f, 1};
+    c[ImGuiCol_PlotHistogramHovered] = {.95f, .56f, .19f, 1};
+    c[ImGuiCol_TextSelectedBg] = {1, .70f, .32f, .5f};
+    c[ImGuiCol_DragDropTarget] = {.28f, .49f, .25f, 1};
+    c[ImGuiCol_NavCursor] = {.77f, .27f, .12f, 1};
+    c[ImGuiCol_NavWindowingHighlight] = {.85f, .43f, .17f, .7f};
+    c[ImGuiCol_NavWindowingDimBg] = {.35f, .28f, .20f, .25f};
+    c[ImGuiCol_ModalWindowDimBg] = {.35f, .28f, .20f, .35f};
+}

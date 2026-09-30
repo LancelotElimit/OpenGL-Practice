@@ -1,3 +1,4 @@
+#include "EditorLocale.h"
 #include "AssetPaths.h"
 #include "Camera.h"
 #include "EditorWorkspace.h"
@@ -20,12 +21,12 @@ using namespace EditorControls;
 void ResourceBrowserPanel::draw(EditorWorkspace &ui, Renderer &renderer, Scene &scene) {
     if (!ui.resources_.open)
         return;
-    if (ImGui::Begin("Resource Browser", &ui.resources_.open)) {
-        ImGui::TextUnformatted("MODEL IMPORT");
+    if (ImGui::Begin(EditorLocale::label("Resource Browser"), &ui.resources_.open)) {
+        ImGui::TextUnformatted(EditorLocale::text("MODEL IMPORT"));
         ImGui::SetNextItemWidth(std::max(180.0f, ImGui::GetContentRegionAvail().x - 145.0f));
         ImGui::InputText("##assetpath", ui.resources_.path.data(), ui.resources_.path.size());
         ImGui::SameLine();
-        if (ImGui::Button("Import model")) {
+        if (ImGui::Button(EditorLocale::label("Import model"))) {
             std::filesystem::path path(ui.resources_.path.data());
             if (!path.is_absolute())
                 path = ui.project_.assetRoot() / path;
@@ -41,7 +42,7 @@ void ResourceBrowserPanel::draw(EditorWorkspace &ui, Renderer &renderer, Scene &
             } else
                 ui.log("Supported imports: OBJ, glTF, GLB.");
         }
-        if (ImGui::Button("Import animated skin")) {
+        if (ImGui::Button(EditorLocale::label("Import animated skin"))) {
             std::filesystem::path path(ui.resources_.path.data());
             if (!path.is_absolute())
                 path = ui.project_.assetRoot() / path;
@@ -51,21 +52,22 @@ void ResourceBrowserPanel::draw(EditorWorkspace &ui, Renderer &renderer, Scene &
             }
             ui.log(renderer.assets().status());
         }
-        if (ImGui::Button("Bind selected model")) {
+        if (ImGui::Button(EditorLocale::label("Bind selected model"))) {
             std::filesystem::path path(ui.resources_.path.data());
             if (!path.is_absolute())
                 path = ui.project_.assetRoot() / path;
             renderer.assets().bindModel(scene, ui.selectedObject_, path);
             ui.log(renderer.assets().status());
         }
-        ImGui::TextWrapped("Import adds an independent object. Existing model references are "
-                           "preserved. Ctrl+S saves references.");
-        ImGui::Text("Cached models: %zu", renderer.assets().resourceCount());
+        ImGui::TextWrapped(
+            EditorLocale::text("Import adds an independent object. Existing model references are "
+                               "preserved. Ctrl+S saves references."));
+        ImGui::Text(EditorLocale::text("Cached models: %zu"), renderer.assets().resourceCount());
         ImGui::TextWrapped("%s", renderer.assets().status().c_str());
-        if (ImGui::Button("Add project OBJ"))
+        if (ImGui::Button(EditorLocale::label("Add project OBJ")))
             ui.selectedObject_ = scene.add(SceneObjectKind::Obj);
         ImGui::SameLine();
-        if (ImGui::Button("Add project glTF"))
+        if (ImGui::Button(EditorLocale::label("Add project glTF")))
             ui.selectedObject_ = scene.add(SceneObjectKind::Gltf);
         ImGui::Separator();
         const auto assets = ui.project_.assetRoot();
@@ -73,14 +75,14 @@ void ResourceBrowserPanel::draw(EditorWorkspace &ui, Renderer &renderer, Scene &
             if (ui.resources_.directory.empty())
                 ui.resources_.directory = assets.string();
             const std::filesystem::path current(ui.resources_.directory);
-            if (ImGui::Button("Root"))
+            if (ImGui::Button(EditorLocale::label("Root")))
                 ui.resources_.directory = assets.string();
             ImGui::SameLine();
-            if (ImGui::Button("Up") && current != assets)
+            if (ImGui::Button(EditorLocale::label("Up")) && current != assets)
                 ui.resources_.directory = current.parent_path().string();
             ImGui::SameLine();
             ImGui::TextUnformatted(current.filename().string().c_str());
-            ImGui::InputTextWithHint("##search", "Filter files / folders",
+            ImGui::InputTextWithHint("##search", EditorLocale::text("Filter files / folders"),
                                      ui.resources_.filter.data(), ui.resources_.filter.size());
             std::error_code error;
             for (const auto &entry : std::filesystem::directory_iterator(current, error)) {
@@ -91,7 +93,9 @@ void ResourceBrowserPanel::draw(EditorWorkspace &ui, Renderer &renderer, Scene &
                 const std::string name = entry.path().filename().string();
                 if (name.find(ui.resources_.filter.data()) == std::string::npos)
                     continue;
-                const std::string label = (directory ? "[Folder] " : "") + name;
+                const std::string label =
+                    std::string(directory ? EditorLocale::text("[Folder] ") : "") + name + "###" +
+                    name;
                 if (ImGui::Selectable(label.c_str(),
                                       ui.resources_.selected == entry.path().string(),
                                       ImGuiSelectableFlags_AllowDoubleClick)) {
@@ -114,10 +118,11 @@ void ResourceBrowserPanel::draw(EditorWorkspace &ui, Renderer &renderer, Scene &
                 }
             }
             ImGui::Separator();
-            ImGui::TextWrapped("Selected: %s", ui.resources_.selected.c_str());
-            ImGui::TextDisabled("Double-click folders. Scene deletion never deletes files.");
+            ImGui::TextWrapped(EditorLocale::text("Selected: %s"), ui.resources_.selected.c_str());
+            ImGui::TextDisabled(
+                EditorLocale::text("Double-click folders. Scene deletion never deletes files."));
         } else
-            ImGui::TextDisabled("No assets directory found.");
+            ImGui::TextDisabled(EditorLocale::text("No assets directory found."));
     }
     ImGui::End();
 }

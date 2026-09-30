@@ -1,3 +1,4 @@
+#include "EditorLocale.h"
 #include "AssetPaths.h"
 #include "Camera.h"
 #include "EditorWorkspace.h"
@@ -79,7 +80,8 @@ void SelectionController::draw(EditorWorkspace &ui, Renderer &renderer, Camera &
         draw->AddCircleFilled(center, 6, color);
         draw->AddCircle(center, ui.selectedObject_ == object.id ? 10.f : 8.f,
                         IM_COL32(255, 255, 255, 240));
-        draw->AddText(ImVec2(center.x + 10, center.y + 5), color, Scene::typeName(object.kind));
+        draw->AddText(ImVec2(center.x + 10, center.y + 5), color,
+                      EditorLocale::text(Scene::typeName(object.kind)));
         draw->PopClipRect();
         const float dx = mouse.x - center.x, dy = mouse.y - center.y;
         if (dx * dx + dy * dy <= 121 && clip.w < markerDistance) {

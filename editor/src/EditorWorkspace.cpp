@@ -1,3 +1,5 @@
+#include "EditorTheme.h"
+#include "EditorLocale.h"
 #include "EditorWorkspace.h"
 #include "PlaySession.h"
 
@@ -55,7 +57,10 @@ EditorWorkspace::EditorWorkspace(GLFWwindow *window, Project &project, PlaySessi
 #endif
     std::error_code error;
     std::filesystem::create_directories(settingsDirectory, error);
-    iniPath_ = (settingsDirectory / "editor_layout.ini").string();
+    // v2 keeps the former layout file intact while migrating translated window IDs.
+    iniPath_ = (settingsDirectory / "editor_layout_v2.ini").string();
+    preferencesPath_ = (settingsDirectory / "editor_preferences.ini").string();
+    EditorLocale::setLanguage(EditorLocale::loadPreference(preferencesPath_));
     resetLayout_ = !std::filesystem::exists(iniPath_);
 
     IMGUI_CHECKVERSION();
@@ -72,23 +77,7 @@ EditorWorkspace::EditorWorkspace(GLFWwindow *window, Project &project, PlaySessi
     }
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.IniFilename = iniPath_.c_str();
-    ImGui::StyleColorsDark();
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.FontSizeBase = 20.0f;
-    style.FontScaleDpi = 1.0f;
-    style.ScaleAllSizes(1.08f);
-    style.WindowRounding = 2.0f;
-    style.ChildRounding = 2.0f;
-    style.FrameRounding = 3.0f;
-    style.TabRounding = 2.0f;
-    style.WindowBorderSize = 0.0f;
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.105f, 0.118f, 0.137f, 1.0f);
-    style.Colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.09f, 0.11f, 1.0f);
-    style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.14f, 0.18f, 0.23f, 1.0f);
-    style.Colors[ImGuiCol_Header] = ImVec4(0.17f, 0.27f, 0.37f, 1.0f);
-    style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.22f, 0.37f, 0.51f, 1.0f);
-    style.Colors[ImGuiCol_Button] = ImVec4(0.18f, 0.31f, 0.42f, 1.0f);
-    style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.23f, 0.43f, 0.57f, 1.0f);
+    applyEditorTheme();
 
     if (!ImGui_ImplGlfw_InitForOpenGL(window, true)) {
         ImGui::DestroyContext();
@@ -149,6 +138,14 @@ void EditorWorkspace::historyAction(Scene &scene, bool redo) {
 EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene, bool interactive) {
     if (!valid_)
         return {};
+    // Apply after the previous frame ends so every window uses one language.
+    if (pendingLanguage_ >= 0) {
+        const auto next = static_cast<EditorLanguage>(pendingLanguage_);
+        if (!EditorLocale::savePreference(preferencesPath_, next))
+            log("Unable to save language preference.");
+        EditorLocale::setLanguage(next);
+        pendingLanguage_ = -1;
+    }
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -168,74 +165,86 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
     if (ImGui::BeginMainMenuBar()) {
         ImGui::TextUnformatted("LANCELOT  /  EDITOR");
         ImGui::Separator();
-        if (ImGui::BeginMenu("File")) {
+        if (ImGui::BeginMenu(EditorLocale::label("File"))) {
             ImGui::BeginDisabled(play_.active());
-            if (ImGui::MenuItem("Open Project..."))
+            if (ImGui::MenuItem(EditorLocale::label("Open Project...")))
                 openProjectPopup_ = true;
-            if (ImGui::MenuItem("Save scene", "Ctrl+S"))
+            if (ImGui::MenuItem(EditorLocale::label("Save scene"), "Ctrl+S"))
                 saveScene(scene);
             ImGui::EndDisabled();
             ImGui::Separator();
             ImGui::TextUnformatted(project_.name().c_str());
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Edit")) {
+        if (ImGui::BeginMenu(EditorLocale::label("Edit"))) {
             ImGui::BeginDisabled(play_.active());
-            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo()))
+            if (ImGui::MenuItem(EditorLocale::label("Undo"), "Ctrl+Z", false, history_.canUndo()))
                 historyAction(scene, false);
-            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo()))
+            if (ImGui::MenuItem(EditorLocale::label("Redo"), "Ctrl+Y", false, history_.canRedo()))
                 historyAction(scene, true);
             ImGui::EndDisabled();
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Window")) {
-            ImGui::MenuItem("Hierarchy", nullptr, &hierarchy_.open);
-            ImGui::MenuItem("Inspector", nullptr, &inspector_.open);
-            ImGui::MenuItem("Resource Browser", nullptr, &resources_.open);
-            ImGui::MenuItem("Output", nullptr, &output_.open);
-            ImGui::MenuItem("Profiler", nullptr, &profiler_.open);
-            ImGui::MenuItem("2D Smoke Lab", nullptr, &smoke_.open);
-            ImGui::MenuItem("3D Water Lab", nullptr, &water_.open);
+        if (ImGui::BeginMenu(EditorLocale::label("Window"))) {
+            ImGui::MenuItem(EditorLocale::label("Hierarchy"), nullptr, &hierarchy_.open);
+            ImGui::MenuItem(EditorLocale::label("Inspector"), nullptr, &inspector_.open);
+            ImGui::MenuItem(EditorLocale::label("Resource Browser"), nullptr, &resources_.open);
+            ImGui::MenuItem(EditorLocale::label("Output"), nullptr, &output_.open);
+            ImGui::MenuItem(EditorLocale::label("Profiler"), nullptr, &profiler_.open);
+            ImGui::MenuItem(EditorLocale::label("2D Smoke Lab"), nullptr, &smoke_.open);
+            ImGui::MenuItem(EditorLocale::label("3D Water Lab"), nullptr, &water_.open);
             ImGui::Separator();
-            if (ImGui::MenuItem("Reset workspace layout"))
+            if (ImGui::MenuItem(EditorLocale::label("Reset workspace layout")))
                 resetLayout_ = true;
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("语言 / Language###Language")) {
+            if (ImGui::MenuItem("简体中文###Chinese", nullptr,
+                                EditorLocale::language() == EditorLanguage::Chinese))
+                pendingLanguage_ = static_cast<int>(EditorLanguage::Chinese);
+            if (ImGui::MenuItem("English###English", nullptr,
+                                EditorLocale::language() == EditorLanguage::English))
+                pendingLanguage_ = static_cast<int>(EditorLanguage::English);
             ImGui::EndMenu();
         }
         ImGui::Separator();
         if (!play_.active()) {
-            if (ImGui::Button("Play"))
+            if (ImGui::Button(EditorLocale::label("Play")))
                 play_.command = PlayCommand::Start;
             ImGui::SameLine();
-            ImGui::TextDisabled("Editing");
+            ImGui::TextDisabled(EditorLocale::text("Editing"));
         } else {
             const bool paused = play_.state() == PlayState::Paused;
-            if (ImGui::Button(paused ? "Resume" : "Pause"))
+            if (ImGui::Button(EditorLocale::label(paused ? "Resume" : "Pause")))
                 play_.command = paused ? PlayCommand::Resume : PlayCommand::Pause;
             ImGui::SameLine();
-            if (paused && ImGui::Button("Step"))
+            if (paused && ImGui::Button(EditorLocale::label("Step")))
                 play_.command = PlayCommand::Step;
             ImGui::SameLine();
-            if (ImGui::Button("Stop"))
+            if (ImGui::Button(EditorLocale::label("Stop")))
                 play_.command = PlayCommand::Stop;
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1, .75f, .2f, 1), "%s  %.1fs", paused ? "Paused" : "Playing",
+            ImGui::TextColored(ImVec4(.64f, .25f, .08f, 1), "%s  %.1fs",
+                               paused ? EditorLocale::text("Paused")
+                                      : EditorLocale::text("Playing"),
                                play_.time());
         }
         if (!play_.active() && savedScene_ != Project::serializeScene(scene)) {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1, .7f, .2f, 1), "Unsaved");
+            ImGui::TextColored(ImVec4(.64f, .25f, .08f, 1), EditorLocale::text("Unsaved"));
         }
         ImGui::EndMainMenuBar();
     }
     if (openProjectPopup_) {
-        ImGui::OpenPopup("Open Project");
+        ImGui::OpenPopup(EditorLocale::label("Open Project"));
         openProjectPopup_ = false;
     }
-    if (ImGui::BeginPopupModal("Open Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("Project descriptor (.lancelot)");
+    if (ImGui::BeginPopupModal(EditorLocale::label("Open Project"), nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(EditorLocale::text("Project descriptor (.lancelot)"));
         ImGui::SetNextItemWidth(580);
         ImGui::InputText("##project", projectPath_.data(), projectPath_.size());
-        if (ImGui::Button("Open")) {
+        if (ImGui::Button(EditorLocale::label("Open"))) {
             Project candidate;
             Scene validation;
             if (candidate.open(projectPath_.data()) && candidate.loadScene(validation)) {
@@ -245,9 +254,9 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
                 log(candidate.error());
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(EditorLocale::label("Cancel")))
             ImGui::CloseCurrentPopup();
-        ImGui::TextWrapped("Save your scene before switching projects.");
+        ImGui::TextWrapped(EditorLocale::text("Save your scene before switching projects."));
         ImGui::EndPopup();
     }
 
@@ -260,23 +269,24 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, &left, &center);
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, &right, &center);
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.27f, &bottom, &center);
-        ImGui::DockBuilderDockWindow("Hierarchy", left);
-        ImGui::DockBuilderDockWindow("Inspector", right);
-        ImGui::DockBuilderDockWindow("3D Water Lab", right);
-        ImGui::DockBuilderDockWindow("Scene View", center);
-        ImGui::DockBuilderDockWindow("2D Smoke Lab", bottom);
-        ImGui::DockBuilderDockWindow("Profiler", bottom);
-        ImGui::DockBuilderDockWindow("Output", bottom);
-        ImGui::DockBuilderDockWindow("Resource Browser", bottom);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Hierarchy"), left);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Inspector"), right);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("3D Water Lab"), right);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Scene View"), center);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("2D Smoke Lab"), bottom);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Profiler"), bottom);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Output"), bottom);
+        ImGui::DockBuilderDockWindow(EditorLocale::label("Resource Browser"), bottom);
         ImGui::DockBuilderFinish(dockspace);
         resetLayout_ = false;
     }
 
     EditorViewportSize result;
     sceneNavigating_ = false;
-    if (ImGui::Begin("Scene View", nullptr,
+    if (ImGui::Begin(EditorLocale::label("Scene View"), nullptr,
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        const char *modes[] = {"Move [Q]", "Rotate [W]", "Scale [E]"};
+        const char *modes[] = {EditorLocale::text("Move [Q]"), EditorLocale::text("Rotate [W]"),
+                               EditorLocale::text("Scale [E]")};
         ImGui::BeginDisabled(play_.active());
         for (int i = 0; i < 3; ++i) {
             if (i)
@@ -287,10 +297,11 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::TextDisabled(play_.active() ? (gameInputFocused_ ? "WASD active | Esc: pause"
-                                                                : "Click view for WASD")
-                            : interactive  ? "RMB + WASD"
-                                           : "F4: return to editor");
+        ImGui::TextDisabled(play_.active() ? (gameInputFocused_
+                                                  ? EditorLocale::text("WASD active | Esc: pause")
+                                                  : EditorLocale::text("Click view for WASD"))
+                            : interactive  ? EditorLocale::text("RMB + WASD")
+                                           : EditorLocale::text("F4: return to editor"));
         ImGui::Separator();
         const ImVec2 available = ImGui::GetContentRegionAvail();
         // Saved dock sizes can collapse the center after a large-to-small resize.
@@ -345,7 +356,7 @@ void EditorWorkspace::draw(Renderer &renderer, Camera &camera, Scene &scene,
     profiler_.frameTimes[profiler_.offset] = deltaTime * 1000.0f;
     profiler_.offset = (profiler_.offset + 1) % ProfilerPanel::HistorySize;
 
-    if (ImGui::Begin("Scene View", nullptr,
+    if (ImGui::Begin(EditorLocale::label("Scene View"), nullptr,
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         if (renderer.viewportTexture() != 0) {
             ImGui::GetWindowDrawList()->AddImage(
@@ -380,7 +391,7 @@ void EditorWorkspace::draw(Renderer &renderer, Camera &camera, Scene &scene,
     const ImGuiIO &io = ImGui::GetIO();
     glViewport(0, 0, static_cast<GLsizei>(io.DisplaySize.x * io.DisplayFramebufferScale.x),
                static_cast<GLsizei>(io.DisplaySize.y * io.DisplayFramebufferScale.y));
-    glClearColor(0.08f, 0.09f, 0.11f, 1.0f);
+    glClearColor(.86f, .81f, .73f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
