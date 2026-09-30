@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShaderProgram.h"
+#include "ParticleSettings.h"
 
 #include <cstddef>
 #include <filesystem>
@@ -9,18 +10,6 @@
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
-
-struct ParticleSettings {
-    bool enabled = true;
-    float rate = 45.0f;
-    float lifetime = 2.4f;
-    float speed = 2.2f;
-    float gravity = -2.5f;
-    float startSize = 0.12f;
-    float endSize = 0.02f;
-    int preset = 0; // 0 sparks, 1 smoke, 2 snow
-    bool soft = true;
-};
 
 class ParticleSystem {
 public:
@@ -32,7 +21,8 @@ public:
     bool valid() const;
     void update(float deltaTime, const ParticleSettings& settings);
     void draw(const glm::mat4& viewProjection, const glm::mat4& view,
-              const glm::vec3& cameraPosition, int preset, bool soft);
+              const glm::vec3& cameraPosition, int preset, bool soft,
+              const glm::mat4& emitterTransform);
     std::size_t count() const;
     void clear();
     void destroy();

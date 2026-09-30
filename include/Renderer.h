@@ -15,6 +15,8 @@
 #include <filesystem>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <unordered_map>
 
 #include <glad/gl.h>
 
@@ -56,17 +58,13 @@ public:
     const RendererStats& stats() const;
     GLuint viewportTexture() const;
     void setShowOnlyImportedModel(bool enabled);
-    ParticleSettings& particleSettings();
+    void resetParticleEmitter(std::uint32_t id);
     bool& showGltfModel();
     GltfAnimatedModel& gltfModel();
     GltfScene& gltfScene();
     bool& showGltfScene();
-    FluidSettings& fluidSettings();
-    FluidSystem& fluidSystem();
-    GpuParticleSettings& gpuParticleSettings();
-    GpuParticleSystem& gpuParticleSystem();
-    Fluid2DSettings& smokeSettings();
-    Fluid2D& smoke2D();
+    FluidSystem& fluidSystem(std::uint32_t id);
+    Fluid2D& smoke2D(std::uint32_t id);
     void render(
         const Scene& scene,
         const Camera& camera,
@@ -103,18 +101,12 @@ private:
     EnvironmentIBL environmentIbl_;
     GltfAnimatedModel animatedModel_;
     GltfScene gltfScene_;
-    GpuParticleSystem gpuParticleSystem_;
-    GpuParticleSettings gpuParticleSettings_;
-    float lastGpuParticleTime_ = 0.0f;
-    Fluid2D smoke2D_;
-    Fluid2DSettings smokeSettings_;
-    float lastSmokeTime_ = 0.0f;
-    FluidSystem fluidSystem_;
-    FluidSettings fluidSettings_;
-    float lastFluidTime_ = 0.0f;
-    ParticleSystem particleSystem_;
-    ParticleSettings particleSettings_;
+    std::filesystem::path particleShaderDirectory_;
+    std::unordered_map<std::uint32_t, std::unique_ptr<ParticleSystem>> cpuEmitters_;
+    std::unordered_map<std::uint32_t, std::unique_ptr<GpuParticleSystem>> gpuEmitters_;
     float lastParticleTime_ = 0.0f;
+    std::unordered_map<std::uint32_t,std::unique_ptr<Fluid2D>> smokeObjects_;
+    std::unordered_map<std::uint32_t,std::unique_ptr<FluidSystem>> waterObjects_;
 
     ShadowMap2D spotlightShadowMap_;
     ShadowCubeMap pointShadowMap_;

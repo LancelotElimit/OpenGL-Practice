@@ -6,10 +6,18 @@
 #endif
 
 #include <vector>
+namespace { std::filesystem::path projectAssetRoot; }
+void setProjectAssetRoot(const std::filesystem::path& root) { projectAssetRoot=root; }
 
 std::filesystem::path findAssetPath(
     const std::filesystem::path& relativePath
 ) {
+    if (!projectAssetRoot.empty() && !relativePath.empty() && !relativePath.is_absolute() && *relativePath.begin()=="assets") {
+        std::filesystem::path suffix;
+        for(auto it=++relativePath.begin();it!=relativePath.end();++it) suffix/=*it;
+        const auto candidate=projectAssetRoot/suffix;
+        return std::filesystem::exists(candidate) ? candidate : std::filesystem::path{};
+    }
     std::vector<std::filesystem::path> searchRoots;
     searchRoots.push_back(std::filesystem::current_path());
 

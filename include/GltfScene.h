@@ -20,12 +20,13 @@ public:
     bool load(const std::filesystem::path& path);
     void draw(const glm::mat4& viewProjection, const glm::mat4& world,
               const glm::vec3& camera, const glm::vec3& light,
-              bool transparent) const;
+              bool transparent, const glm::vec3& lightColor, float ambientIntensity) const;
     void destroy();
     bool valid() const;
     const std::string& status() const;
     const glm::vec3& center() const;
     float radius() const;
+    const std::vector<glm::vec3>& pickingTriangles() const { return pickingTriangles_; }
     std::size_t primitiveCount() const;
     std::size_t triangleCount(bool transparent) const;
     std::size_t drawCount(bool transparent) const;
@@ -57,6 +58,7 @@ private:
 
     ShaderProgram program_;
     std::vector<Primitive> primitives_;
+    std::vector<glm::vec3> pickingTriangles_;
     std::vector<Material> materials_;
     std::vector<GLuint> textures_;
     glm::vec3 center_{0.0f};

@@ -11,8 +11,9 @@ constexpr float FixedStep = 1.0f / 60.0f;
 
 Fluid2D::Fluid2D(const std::filesystem::path& shaderDirectory)
     : program_(shaderDirectory / "postprocess.vert",
-               shaderDirectory / "fluid2d.frag", "2D smoke solver") {
-    if (!program_.valid()) return;
+               shaderDirectory / "fluid2d.frag", "2D smoke solver"),
+      sceneProgram_(shaderDirectory/"smoke_scene.vert",shaderDirectory/"smoke_scene.frag","Smoke scene surface") {
+    if (!program_.valid() || !sceneProgram_.valid()) return;
     const float quad[] = {
         -1, -1, 0, 0,  1, -1, 1, 0,  1, 1, 1, 1,
         -1, -1, 0, 0,  1, 1, 1, 1,  -1, 1, 0, 1
@@ -60,6 +61,18 @@ Fluid2D::Fluid2D(const std::filesystem::path& shaderDirectory)
 
 Fluid2D::~Fluid2D() { destroy(); }
 bool Fluid2D::valid() const { return valid_; }
+void Fluid2D::drawScene(const glm::mat4& viewProjection,const glm::mat4& model,float opacity) {
+    if(!valid_) return;
+    sceneProgram_.use();
+    glUniformMatrix4fv(sceneProgram_.uniform("uViewProjection"),1,GL_FALSE,&viewProjection[0][0]);
+    glUniformMatrix4fv(sceneProgram_.uniform("uModel"),1,GL_FALSE,&model[0][0]);
+    glUniform1f(sceneProgram_.uniform("uOpacity"),opacity);
+    glUniform1i(sceneProgram_.uniform("uDensity"),0);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,density_[densityRead_].texture);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE);
+    glBindVertexArray(quadVao_); glDrawArrays(GL_TRIANGLES,0,6); glBindVertexArray(0);
+    glDepthMask(GL_TRUE); glDisable(GL_BLEND);
+}
 GLuint Fluid2D::displayTexture() const { return display_.texture; }
 int Fluid2D::resolution() const { return Size; }
 float Fluid2D::updateMilliseconds() const { return updateMilliseconds_; }
@@ -276,4 +289,5 @@ void Fluid2D::destroy() {
     glDeleteVertexArrays(1, &quadVao_);
     quadVbo_ = quadVao_ = 0;
     program_.destroy();
+    sceneProgram_.destroy();
 }

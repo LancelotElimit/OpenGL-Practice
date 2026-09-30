@@ -33,7 +33,7 @@ void main() {
         float r1 = hash(aSeed * 3.17 + floor(uTime * 7.0));
         float r2 = hash(aSeed * 8.43 + floor(uTime * 11.0));
         outAge = 0.0;
-        outPosition = vec3(-1.45, -0.2, 0.25);
+        outPosition = vec3(0.0); // emitter-local simulation
         if (uPreset == 1) {
             outPosition += vec3((r0 - 0.5) * 2.2, 2.1, (r1 - 0.5) * 1.5);
             outVelocity = vec3((r2 - 0.5) * 0.35, -0.8 - r1, (r0 - 0.5) * 0.2);

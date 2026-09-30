@@ -27,7 +27,9 @@ public:
     ) const;
     void renderSkybox(
         const glm::mat4& view,
-        const glm::mat4& projection
+        const glm::mat4& projection,
+        const glm::mat3& sampleRotation,
+        float intensity
     ) const;
     void destroy();
 

@@ -1,24 +1,13 @@
 #pragma once
 
 #include "ShaderProgram.h"
+#include "ParticleSettings.h"
 
 #include <cstddef>
 #include <filesystem>
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
-
-struct GpuParticleSettings {
-    bool visible = true;
-    bool emitting = true;
-    bool paused = false;
-    int capacity = 8192;
-    float emissionRate = 5500.0f;
-    float lifetime = 2.5f;
-    float gravity = -1.5f;
-    float size = 0.055f;
-    int preset = 0; // sparks, snow, fountain
-};
 
 // OpenGL 3.3 ping-pong Transform Feedback: no CPU per-particle update/readback.
 class GpuParticleSystem {
@@ -32,7 +21,7 @@ public:
     void reset(const GpuParticleSettings& settings);
     void update(float deltaTime, const GpuParticleSettings& settings);
     void draw(const glm::mat4& viewProjection, const glm::mat4& view,
-              const GpuParticleSettings& settings) const;
+              const GpuParticleSettings& settings, const glm::mat4& emitterTransform) const;
     std::size_t slotCount(const GpuParticleSettings& settings) const;
     void destroy();
     static constexpr int MaxParticles = 32768;

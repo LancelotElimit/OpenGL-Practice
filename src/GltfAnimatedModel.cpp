@@ -109,7 +109,7 @@ GltfAnimatedModel::GltfAnimatedModel(
         shaderDirectory / "skinned.frag",
         "Skinned glTF shader"
     ) {
-    valid_ = program_.valid() && load(modelPath);
+    valid_ = program_.valid() && !modelPath.empty() && load(modelPath);
 }
 
 GltfAnimatedModel::~GltfAnimatedModel() {
@@ -364,6 +364,7 @@ bool GltfAnimatedModel::load(const std::filesystem::path& modelPath) {
 }
 
 void GltfAnimatedModel::update(float timeSeconds) {
+    if (!valid_) return;
     const float dt = lastUpdateTime_ < 0.0f ? 0.0f
         : glm::clamp(timeSeconds - lastUpdateTime_, 0.0f, 0.1f);
     lastUpdateTime_ = timeSeconds;
@@ -506,12 +507,16 @@ void GltfAnimatedModel::draw(
     const glm::mat4& viewProjection,
     const glm::mat4& modelTransform,
     const glm::vec3& cameraPosition,
-    const glm::vec3& lightPosition
+    const glm::vec3& lightPosition,
+    const glm::vec3& lightColor,
+    float ambientIntensity
 ) const {
     if (!valid_) {
         return;
     }
     program_.use();
+    glUniform3fv(program_.uniform("uLightColor"),1,glm::value_ptr(lightColor));
+    glUniform1f(program_.uniform("uAmbientIntensity"),ambientIntensity);
     glUniformMatrix4fv(
         program_.uniform("uViewProjection"),
         1, GL_FALSE, glm::value_ptr(viewProjection)

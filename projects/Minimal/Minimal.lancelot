@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "name": "Minimal Project",
+  "assetRoot": "assets",
+  "scene": "scene.json",
+  "assets": {}
+}

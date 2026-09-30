@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShaderProgram.h"
+#include "SimulationSettings.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -8,20 +9,6 @@
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
-
-struct Fluid2DSettings {
-    bool showWindow = true;
-    bool enabled = true;
-    bool paused = false;
-    bool autoSource = true;
-    bool centerObstacle = true;
-    float sourceStrength = 1.0f;
-    float force = 0.8f;
-    float dissipation = 0.995f;
-    float brushRadius = 0.045f;
-    int pressureIterations = 24;
-    int viewMode = 0; // density, velocity, pressure, divergence, obstacle
-};
 
 // Stable-Fluids-style 2D smoke solver using OpenGL 3.3 framebuffer passes.
 class Fluid2D {
@@ -37,6 +24,7 @@ public:
     void paintObstacle(glm::vec2 uv, float radius);
     void inject(glm::vec2 uv, glm::vec2 velocity, float strength);
     void update(float deltaTime, const Fluid2DSettings& settings);
+    void drawScene(const glm::mat4& viewProjection, const glm::mat4& model, float opacity);
     GLuint displayTexture() const;
     int resolution() const;
     float updateMilliseconds() const;
@@ -62,6 +50,7 @@ private:
     void updateDisplay(const Fluid2DSettings& settings);
 
     ShaderProgram program_;
+    ShaderProgram sceneProgram_;
     Target velocity_[2]{};
     Target density_[2]{};
     Target pressure_[2]{};

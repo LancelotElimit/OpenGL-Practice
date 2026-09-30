@@ -20,11 +20,14 @@ public:
     glm::mat4 viewMatrix() const;
     const glm::vec3& position() const;
     const glm::vec3& front() const;
+    void setFieldOfView(float value) { fieldOfView_=glm::clamp(value,20.f,100.f); }
+    float fieldOfView() const { return fieldOfView_; }
 
 private:
     void updateFrontFromAngles();
 
     glm::vec3 position_;
+    float fieldOfView_ = 45;
     glm::vec3 front_{0.0f, 0.0f, -1.0f};
     glm::vec3 worldUp_{0.0f, 1.0f, 0.0f};
     float yaw_ = -90.0f;

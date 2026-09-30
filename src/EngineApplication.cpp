@@ -13,9 +13,12 @@
 #include "Texture2D.h"
 #include "TextureCache.h"
 #include "Window.h"
+#include "Project.h"
+#include "EngineApplication.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <imgui.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -23,8 +26,9 @@
 #include <iostream>
 #include <sstream>
 
-int main() {
-    Window applicationWindow(1280, 720, "OpenGL Practice");
+int EngineApplication::run(Project& project) {
+    setProjectAssetRoot(project.assetRoot());
+    Window applicationWindow(1440, 900, project.name().c_str());
     if (!applicationWindow.valid()) {
         return 1;
     }
@@ -39,23 +43,17 @@ int main() {
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << '\n';
 
     const std::filesystem::path shaderDirectory = findAssetPath("shaders");
-    const std::filesystem::path modelPath = findAssetPath(
-        "assets/my_model/Mouse-5079f33c/obj/mouse_5.obj"
-    );
-    const std::filesystem::path environmentPath = findAssetPath(
-        "assets/sunset_jhbcentral_1k.hdr"
-    );
-    const std::filesystem::path animatedModelPath = findAssetPath(
-        "assets/SimpleSkin.gltf"
-    );
-    if (shaderDirectory.empty() || modelPath.empty()) {
+    const auto modelPath=project.asset("model");
+    const auto environmentPath=project.asset("environment");
+    const auto animatedModelPath=project.asset("animated");
+    if (shaderDirectory.empty()) {
         std::cerr << "Could not find the shaders or required assets.\n";
         return 1;
     }
 
     Model model;
     // The exported OBJ also contains a huge decorative Plane object.
-    if (!model.load(modelPath, "Plane")) {
+    if (!modelPath.empty() && !model.load(modelPath,project.excludedObject())) {
         return 1;
     }
     std::cout << "Model geometry: "
@@ -81,12 +79,12 @@ int main() {
 
     const float floorVertices[] = {
         // position             UV          normal           tangent + sign
-        -5, -.5f, -5,  0, 0,   0, 1, 0,    1, 0, 0, -1,
-         5, -.5f, -5,  5, 0,   0, 1, 0,    1, 0, 0, -1,
-         5, -.5f,  5,  5, 5,   0, 1, 0,    1, 0, 0, -1,
-         5, -.5f,  5,  5, 5,   0, 1, 0,    1, 0, 0, -1,
-        -5, -.5f,  5,  0, 5,   0, 1, 0,    1, 0, 0, -1,
-        -5, -.5f, -5,  0, 0,   0, 1, 0,    1, 0, 0, -1
+        -5, 0, -5,  0, 0,   0, 1, 0,    1, 0, 0, -1,
+         5, 0, -5,  5, 0,   0, 1, 0,    1, 0, 0, -1,
+         5, 0,  5,  5, 5,   0, 1, 0,    1, 0, 0, -1,
+         5, 0,  5,  5, 5,   0, 1, 0,    1, 0, 0, -1,
+        -5, 0,  5,  0, 5,   0, 1, 0,    1, 0, 0, -1,
+        -5, 0, -5,  0, 0,   0, 1, 0,    1, 0, 0, -1
     };
     Mesh floorMesh;
     floorMesh.upload(
@@ -135,10 +133,8 @@ int main() {
 
     PbrMaterial floorMaterial;
     floorMaterial.load(
-        findAssetPath("assets/concrete_diff_1k.jpg"),
-        findAssetPath("assets/concrete_nor_gl_1k.jpg"),
-        findAssetPath("assets/concrete_rough_1k.jpg"),
-        findAssetPath("assets/concrete_ao_1k.jpg"),
+        project.asset("floorColor"), project.asset("floorNormal"),
+        project.asset("floorRoughness"), project.asset("floorAO"),
         textureCache
     );
     std::cout << "Shared texture cache: "
@@ -151,7 +147,7 @@ int main() {
 
     Camera camera(glm::vec3(0.0f, 1.5f, 4.0f), -90.0f, -20.0f);
     Scene scene;
-    const float targetModelRadius = 1.7f;
+    const float targetModelRadius = project.modelRadius();
     const float modelScale = targetModelRadius
         / std::max(model.boundsRadius(), 0.001f);
     float lowestModelY = model.boundsCenter().y;
@@ -168,6 +164,17 @@ int main() {
         glm::translate(glm::mat4(1.0f), modelOffset)
         * glm::scale(glm::mat4(1.0f), glm::vec3(modelScale));
     scene.setModelImportTransform(modelImportTransform);
+    const glm::vec3 objPivot = glm::vec3(modelImportTransform * glm::vec4(model.boundsCenter(), 1));
+    scene.configureObject(SceneObjectKind::Obj,
+        glm::translate(glm::mat4(1), -objPivot) * modelImportTransform,
+        model.boundsCenter(), model.boundsRadius());
+    std::vector<glm::vec3> objPickTriangles;
+    objPickTriangles.reserve(model.indices().size());
+    for (const auto index : model.indices()) {
+        const auto offset = static_cast<std::size_t>(index) * Model::VertexStrideFloats;
+        objPickTriangles.emplace_back(model.vertices()[offset], model.vertices()[offset+1], model.vertices()[offset+2]);
+    }
+    scene.setPickingTriangles(SceneObjectKind::Obj, std::move(objPickTriangles));
     Renderer renderer(
         shaderDirectory,
         environmentPath,
@@ -177,12 +184,24 @@ int main() {
         return 1;
     }
     renderer.setShowOnlyImportedModel(false);
-    const std::filesystem::path sampleGltf = findAssetPath("assets/BoxTextured.glb");
+    const auto sampleGltf=project.asset("gltf");
     if (!sampleGltf.empty() && renderer.gltfScene().load(sampleGltf)) {
         renderer.showGltfScene() = true;
     }
+    const float gltfScale = .75f / std::max(renderer.gltfScene().radius(), .001f);
+    scene.configureObject(SceneObjectKind::Gltf,
+        glm::scale(glm::mat4(1), glm::vec3(gltfScale))
+        * glm::translate(glm::mat4(1), -renderer.gltfScene().center()),
+        renderer.gltfScene().center(), renderer.gltfScene().radius());
+    scene.configureObject(SceneObjectKind::Skinned,
+        glm::scale(glm::mat4(1), glm::vec3(.75f))
+        * glm::translate(glm::mat4(1), -renderer.gltfModel().boundsCenter()),
+        renderer.gltfModel().boundsCenter(), renderer.gltfModel().boundsRadius());
+    scene.setPickingTriangles(SceneObjectKind::Gltf, renderer.gltfScene().pickingTriangles());
 
-    DebugPanel debugPanel(window);
+    if (!project.loadScene(scene)) { std::cerr << project.error() << '\n'; return 1; }
+    renderer.showGltfModel() = true;
+    DebugPanel debugPanel(window, project);
     if (!debugPanel.valid()) {
         std::cerr << "Could not initialize the diagnostics panel.\n";
         return 1;
@@ -201,7 +220,7 @@ int main() {
     float displayedFps = 0.0f;
     unsigned int statsFrameCount = 0;
 
-    while (!applicationWindow.shouldClose()) {
+    while (!applicationWindow.shouldClose() && project.requestedOpen.empty()) {
         const float currentFrameTime = static_cast<float>(glfwGetTime());
         const float deltaTime = currentFrameTime - lastFrameTime;
         lastFrameTime = currentFrameTime;
@@ -230,24 +249,25 @@ int main() {
         }
         f3WasPressed = f3IsPressed;
 
-        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+        const bool materialShortcuts = !ImGui::GetIO().WantCaptureKeyboard;
+        if (materialShortcuts && glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
             exposure += deltaTime;
         }
-        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+        if (materialShortcuts && glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
             exposure -= deltaTime;
         }
         exposure = std::clamp(exposure, 0.1f, 5.0f);
 
-        if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
+        if (materialShortcuts && glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
             modelMetallic -= deltaTime * 0.5f;
         }
-        if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+        if (materialShortcuts && glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
             modelMetallic += deltaTime * 0.5f;
         }
-        if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+        if (materialShortcuts && glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
             modelRoughness -= deltaTime * 0.5f;
         }
-        if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
+        if (materialShortcuts && glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
             modelRoughness += deltaTime * 0.5f;
         }
         modelMetallic = std::clamp(modelMetallic, 0.0f, 1.0f);
@@ -264,7 +284,7 @@ int main() {
             continue;
         }
 
-        const EditorViewportSize viewport = debugPanel.beginFrame(renderer, uiInteractive);
+        const EditorViewportSize viewport = debugPanel.beginFrame(renderer, scene, uiInteractive);
         if ((!uiInteractive || debugPanel.sceneNavigating())
             && glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE) {
             camera.processKeyboard(window, deltaTime);
@@ -307,14 +327,13 @@ int main() {
             const RendererStats& stats = renderer.stats();
             std::ostringstream title;
             title << std::fixed << std::setprecision(1)
-                  << "OpenGL Practice | FPS " << displayedFps
+                  << project.name() << " | FPS " << displayedFps
                   << " | Draws " << stats.drawCalls
                   << " | Triangles " << stats.submittedTriangles
                   << " | Instances " << stats.visibleInstances
                   << '/' << stats.totalInstances
                   << " | Cached textures " << textureCache.size()
-                  << " | Fluid " << renderer.fluidSystem().simulationMilliseconds()
-                  << "/" << renderer.fluidSystem().surfaceMilliseconds() << "ms"
+                  << " | Fluid " << renderer.stats().fluidUpdateMs << "ms"
                   << " | Metal " << modelMetallic
                   << " | Rough " << modelRoughness;
             applicationWindow.setTitle(title.str());

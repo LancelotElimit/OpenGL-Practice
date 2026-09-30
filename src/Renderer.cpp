@@ -81,10 +81,7 @@ Renderer::Renderer(
       environmentIbl_(shaderDirectory, environmentPath),
       animatedModel_(shaderDirectory, animatedModelPath),
       gltfScene_(shaderDirectory),
-      gpuParticleSystem_(shaderDirectory),
-      smoke2D_(shaderDirectory),
-      fluidSystem_(shaderDirectory),
-      particleSystem_(shaderDirectory) {
+      particleShaderDirectory_(shaderDirectory) {
     if (!mainProgram_.valid()
         || !lightProgram_.valid()
         || !depthProgram_.valid()
@@ -92,11 +89,7 @@ Renderer::Renderer(
         || !brightPassProgram_.valid()
         || !blurProgram_.valid()
         || !postprocessProgram_.valid()
-        || !environmentIbl_.valid()
-        || !particleSystem_.valid()
-        || !fluidSystem_.valid()
-        || !gpuParticleSystem_.valid()
-        || !smoke2D_.valid()) {
+        || !environmentIbl_.valid()) {
         return;
     }
 
@@ -163,17 +156,25 @@ void Renderer::setShowOnlyImportedModel(bool enabled) {
     showOnlyImportedModel_ = enabled;
 }
 
-ParticleSettings& Renderer::particleSettings() { return particleSettings_; }
+void Renderer::resetParticleEmitter(std::uint32_t id) {
+    // Removing the runtime recreates a fresh simulation on the next frame.
+    cpuEmitters_.erase(id);
+    gpuEmitters_.erase(id);
+}
 bool& Renderer::showGltfModel() { return showAnimatedModel_; }
 GltfAnimatedModel& Renderer::gltfModel() { return animatedModel_; }
 GltfScene& Renderer::gltfScene() { return gltfScene_; }
 bool& Renderer::showGltfScene() { return showGltfScene_; }
-FluidSettings& Renderer::fluidSettings() { return fluidSettings_; }
-FluidSystem& Renderer::fluidSystem() { return fluidSystem_; }
-GpuParticleSettings& Renderer::gpuParticleSettings() { return gpuParticleSettings_; }
-GpuParticleSystem& Renderer::gpuParticleSystem() { return gpuParticleSystem_; }
-Fluid2DSettings& Renderer::smokeSettings() { return smokeSettings_; }
-Fluid2D& Renderer::smoke2D() { return smoke2D_; }
+FluidSystem& Renderer::fluidSystem(std::uint32_t id) {
+    auto& runtime=waterObjects_[id];
+    if(!runtime) runtime=std::make_unique<FluidSystem>(particleShaderDirectory_);
+    return *runtime;
+}
+Fluid2D& Renderer::smoke2D(std::uint32_t id) {
+    auto& runtime=smokeObjects_[id];
+    if(!runtime) runtime=std::make_unique<Fluid2D>(particleShaderDirectory_);
+    return *runtime;
+}
 
 void Renderer::configureStaticUniforms() {
     mainProgram_.use();
@@ -249,13 +250,12 @@ void Renderer::render(
 ) {
     stats_ = {};
     const auto& modelTransforms = scene.modelTransforms();
-    const glm::mat4& floorTransform = scene.floorTransform();
     const glm::vec3& lightPosition = scene.primaryLightPosition();
     const glm::vec3& lightPosition2 = scene.secondaryLightPosition();
 
     const glm::mat4 view = camera.viewMatrix();
     const glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f),
+        glm::radians(camera.fieldOfView()),
         static_cast<float>(framebufferWidth)
             / static_cast<float>(framebufferHeight),
         0.1f,
@@ -264,15 +264,47 @@ void Renderer::render(
     const glm::mat4 viewProjection = projection * view;
     const Frustum frustum(viewProjection);
 
-    smoke2D_.update(timeSeconds - lastSmokeTime_, smokeSettings_);
-    lastSmokeTime_ = timeSeconds;
-    stats_.smokeUpdateMs = smoke2D_.updateMilliseconds();
-    stats_.smokePasses = smoke2D_.passCount();
-    stats_.drawCalls += static_cast<std::uint64_t>(stats_.smokePasses);
-    stats_.submittedTriangles += 2 * static_cast<std::uint64_t>(stats_.smokePasses);
-    gpuParticleSystem_.update(timeSeconds - lastGpuParticleTime_, gpuParticleSettings_);
-    lastGpuParticleTime_ = timeSeconds;
-    stats_.gpuParticleSlots = gpuParticleSystem_.slotCount(gpuParticleSettings_);
+    // Runtime state is keyed by stable scene ID. Copies never share live buffers.
+    const auto hasEmitter = [&scene](std::uint32_t id, SceneObjectKind kind) {
+        return std::any_of(scene.objects().begin(), scene.objects().end(), [&](const auto& object) {
+            return object.id == id && object.kind == kind;
+        });
+    };
+    std::erase_if(cpuEmitters_, [&](const auto& item) { return !hasEmitter(item.first, SceneObjectKind::CpuEmitter); });
+    std::erase_if(gpuEmitters_, [&](const auto& item) { return !hasEmitter(item.first, SceneObjectKind::GpuEmitter); });
+    std::erase_if(waterObjects_, [&](const auto& item) { return !hasEmitter(item.first, SceneObjectKind::Water); });
+    std::erase_if(smokeObjects_, [&](const auto& item) { return !hasEmitter(item.first, SceneObjectKind::Smoke); });
+    const float particleDt = timeSeconds - lastParticleTime_;
+    lastParticleTime_ = timeSeconds;
+    for (const auto& object : scene.objects()) {
+        if (!object.visible) continue;
+        if(object.kind==SceneObjectKind::Water) {
+            auto& runtime=fluidSystem(object.id); runtime.update(particleDt,object.waterSettings());
+            stats_.fluidParticles+=runtime.particleCount(); stats_.fluidTriangles+=runtime.triangleCount();
+            stats_.fluidUpdateMs+=runtime.updateMilliseconds();
+        } else if(object.kind==SceneObjectKind::Smoke) {
+            auto& runtime=smoke2D(object.id); runtime.update(particleDt,object.smokeSettings());
+            stats_.smokeUpdateMs+=runtime.updateMilliseconds(); stats_.smokePasses+=runtime.passCount();
+        } else if (object.kind == SceneObjectKind::CpuEmitter) {
+            auto& runtime = cpuEmitters_[object.id];
+            if (!runtime) runtime = std::make_unique<ParticleSystem>(particleShaderDirectory_);
+            if (runtime->valid()) {
+                runtime->update(particleDt, object.particleSettings());
+                stats_.liveParticles += runtime->count();
+            }
+        } else if (object.kind == SceneObjectKind::GpuEmitter && object.gpuSettings().visible) {
+            auto& runtime = gpuEmitters_[object.id];
+            if (!runtime) {
+                runtime = std::make_unique<GpuParticleSystem>(particleShaderDirectory_);
+                runtime->reset(object.gpuSettings());
+            }
+            if (runtime->valid()) {
+                runtime->update(particleDt, object.gpuSettings());
+                stats_.gpuParticleSlots += runtime->slotCount(object.gpuSettings());
+            }
+        }
+    }
+    stats_.drawCalls+=stats_.smokePasses; stats_.submittedTriangles+=2*stats_.smokePasses;
 
     // Keep all instances for shadow passes: an off-screen object may still
     // cast a shadow into the camera view.
@@ -297,37 +329,48 @@ void Renderer::render(
     }
     stats_.visibleInstances = visibleModelTransforms.size();
 
-    const glm::mat4 animatedTransform =
-        glm::translate(glm::mat4(1.0f), glm::vec3(-2.2f, -0.5f, -1.2f))
-        * glm::scale(glm::mat4(1.0f), glm::vec3(0.75f));
-    const glm::mat4 gltfTransform =
-        glm::translate(glm::mat4(1.0f), glm::vec3(2.1f, 0.4f, -1.0f))
-        * glm::scale(glm::mat4(1.0f), glm::vec3(
-            0.75f / std::max(gltfScene_.radius(), 0.001f)));
     animatedModel_.update(timeSeconds);
-    fluidSystem_.update(timeSeconds - lastFluidTime_, fluidSettings_);
-    lastFluidTime_ = timeSeconds;
-    stats_.fluidParticles = fluidSystem_.particleCount();
-    stats_.fluidTriangles = fluidSystem_.triangleCount();
-    stats_.fluidUpdateMs = fluidSystem_.updateMilliseconds();
-    particleSystem_.update(timeSeconds - lastParticleTime_, particleSettings_);
-    lastParticleTime_ = timeSeconds;
-    stats_.liveParticles = particleSystem_.count();
-    const bool animatedModelVisible = animatedModel_.valid()
-        && frustum.containsSphere(
-            transformedCenter(
-                animatedTransform,
-                animatedModel_.boundsCenter()
-            ),
-            animatedModel_.boundsRadius() * maximumScale(animatedTransform)
-        );
     const glm::mat4 lightProjection = glm::perspective(
         glm::radians(45.0f),
         1.0f,
         0.1f,
         20.0f
     );
-    const glm::mat4 lightSpaceMatrix = lightProjection * camera.viewMatrix();
+    glm::vec3 spotPosition(0,2,3),spotDirection(0,-.5f,-1);
+    glm::vec3 spotColor(0);
+    int pointCount=0,spotCount=0;
+    std::array<glm::vec3,8> pointPositions{},pointColors{};
+    std::array<glm::vec3,4> spotPositions{},spotDirections{},spotColors{};
+    float environmentIntensity=0;
+    bool skyVisible=false;
+    glm::mat3 environmentRotation(1);
+    bool environmentSelected=false;
+    for(const auto& object:scene.objects()) {
+        if(!object.visible) continue;
+        if(object.kind==SceneObjectKind::PointLight && pointCount<8) {
+            const auto& settings=dynamic_cast<const LightObject&>(object).settings;
+            pointPositions[pointCount]=object.position; pointColors[pointCount++]=settings.color*settings.intensity;
+        }
+        if(object.kind==SceneObjectKind::SpotLight && spotCount<4) {
+            const auto& settings=dynamic_cast<const LightObject&>(object).settings;
+            spotPositions[spotCount]=object.position;
+            spotDirections[spotCount]=glm::normalize(glm::vec3(object.editorMatrix()*glm::vec4(0,0,-1,0)));
+            spotColors[spotCount++]=settings.color*settings.intensity;
+        }
+        if(object.kind==SceneObjectKind::Environment) {
+            const auto& settings=dynamic_cast<const EnvironmentObject&>(object).settings;
+            environmentIntensity+=settings.intensity; skyVisible|=settings.sky;
+            if(!environmentSelected) {
+                glm::mat3 rotation(object.editorMatrix());
+                for(int axis=0;axis<3;++axis) rotation[axis]=glm::normalize(rotation[axis]);
+                environmentRotation=glm::transpose(rotation);
+                environmentSelected=true;
+            }
+        }
+    }
+    if(spotCount) { spotPosition=spotPositions[0];spotDirection=spotDirections[0];spotColor=spotColors[0]; }
+    const auto up=std::abs(spotDirection.y)>.99f ? glm::vec3(1,0,0):glm::vec3(0,1,0);
+    const glm::mat4 lightSpaceMatrix = lightProjection * glm::lookAt(spotPosition,spotPosition+spotDirection,up);
 
     spotlightShadowMap_.beginWrite();
     depthProgram_.use();
@@ -345,7 +388,9 @@ void Renderer::render(
             * modelTransforms.size();
     }
     glUniform1i(depthUseInstancingLocation_, GL_FALSE);
-    if (!showOnlyImportedModel_) {
+    for (const auto& platform : scene.objects()) {
+        if (showOnlyImportedModel_ || !platform.visible || platform.kind!=SceneObjectKind::Platform) continue;
+        const auto floorTransform=platform.matrix();
         glUniformMatrix4fv(
             depthModelLocation_,
             1,
@@ -405,7 +450,9 @@ void Renderer::render(
                 * modelTransforms.size();
         }
         glUniform1i(depthUseInstancingLocation_, GL_FALSE);
-        if (!showOnlyImportedModel_) {
+        for (const auto& platform : scene.objects()) {
+            if (showOnlyImportedModel_ || !platform.visible || platform.kind!=SceneObjectKind::Platform) continue;
+            const auto floorTransform=platform.matrix();
             glUniformMatrix4fv(
                 depthModelLocation_,
                 1,
@@ -433,6 +480,21 @@ void Renderer::render(
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     mainProgram_.use();
+    glUniform1i(mainProgram_.uniform("uPointCount"),pointCount);
+    if(pointCount) {
+        glUniform3fv(mainProgram_.uniform("uPointPositions"),pointCount,glm::value_ptr(pointPositions[0]));
+        glUniform3fv(mainProgram_.uniform("uPointColors"),pointCount,glm::value_ptr(pointColors[0]));
+    }
+    glUniform1i(mainProgram_.uniform("uSpotCount"),spotCount);
+    if(spotCount) {
+        glUniform3fv(mainProgram_.uniform("uSpotPositions"),spotCount,glm::value_ptr(spotPositions[0]));
+        glUniform3fv(mainProgram_.uniform("uSpotDirections"),spotCount,glm::value_ptr(spotDirections[0]));
+        glUniform3fv(mainProgram_.uniform("uSpotColors"),spotCount,glm::value_ptr(spotColors[0]));
+    }
+    glUniform1f(mainProgram_.uniform("uEnvironmentIntensity"),environmentIntensity);
+    glUniformMatrix3fv(mainProgram_.uniform("uEnvironmentRotation"),1,GL_FALSE,glm::value_ptr(environmentRotation));
+    glUniform1i(mainProgram_.uniform("uOverrideRoughness"),GL_FALSE);
+    glUniform3fv(mainProgram_.uniform("uSpotLightColor"),1,glm::value_ptr(spotColor));
     glUniformMatrix4fv(
         transformLocation_,
         1,
@@ -453,12 +515,12 @@ void Renderer::render(
     glUniform3fv(
         spotLightPositionLocation_,
         1,
-        glm::value_ptr(camera.position())
+        glm::value_ptr(spotPosition)
     );
     glUniform3fv(
         spotLightDirectionLocation_,
         1,
-        glm::value_ptr(camera.front())
+        glm::value_ptr(spotDirection)
     );
     glUniform3fv(
         lightPositionLocation_,
@@ -504,16 +566,20 @@ void Renderer::render(
     }
     glUniform1i(useInstancingLocation_, GL_FALSE);
 
-    if (!showOnlyImportedModel_) {
+    for (const auto& platform : scene.objects()) {
+        if (showOnlyImportedModel_ || !platform.visible || platform.kind!=SceneObjectKind::Platform) continue;
+        const auto floorTransform=platform.matrix();
+        const auto& settings=dynamic_cast<const PlatformObject&>(platform);
         glUniformMatrix4fv(
             modelLocation_,
             1,
             GL_FALSE,
             glm::value_ptr(floorTransform)
         );
-        glUniform3f(materialColorLocation_, 1.0f, 1.0f, 1.0f);
+        glUniform3fv(materialColorLocation_,1,glm::value_ptr(settings.tint));
         glUniform1f(metallicLocation_, 0.0f);
-        glUniform1f(roughnessLocation_, 0.78f);
+        glUniform1f(roughnessLocation_, settings.roughness);
+        glUniform1i(mainProgram_.uniform("uOverrideRoughness"),GL_TRUE);
         glUniform1f(aoLocation_, 1.0f);
         glUniform1i(
             usePbrMapsLocation_,
@@ -533,67 +599,103 @@ void Renderer::render(
 
     // The glTF joints are evaluated on the CPU; the vertex skinning itself
     // happens in skinned.vert on the GPU.
-    if (showAnimatedModel_ && animatedModelVisible) {
+    for (const auto& object : scene.objects()) {
+        const auto animatedTransform = object.matrix();
+        if (object.kind != SceneObjectKind::Skinned || !object.visible
+            || !showAnimatedModel_ || !animatedModel_.valid()
+            || !frustum.containsSphere(transformedCenter(animatedTransform, animatedModel_.boundsCenter()),
+                animatedModel_.boundsRadius() * maximumScale(animatedTransform))) continue;
         animatedModel_.draw(
             viewProjection,
             animatedTransform,
             camera.position(),
-            lightPosition
+            lightPosition, pointColors[0], environmentIntensity
         );
         ++stats_.drawCalls;
         stats_.submittedTriangles += animatedModel_.triangleCount();
     }
 
-    const bool gltfVisible = showGltfScene_ && gltfScene_.valid()
-        && frustum.containsSphere(
-            transformedCenter(gltfTransform, gltfScene_.center()),
-            gltfScene_.radius() * maximumScale(gltfTransform));
-    if (gltfVisible) {
+    std::vector<glm::mat4> visibleGltf;
+    for (const auto& object : scene.objects()) {
+        const auto gltfTransform = object.matrix();
+        if (object.kind != SceneObjectKind::Gltf || !object.visible
+            || !showGltfScene_ || !gltfScene_.valid()
+            || !frustum.containsSphere(transformedCenter(gltfTransform, gltfScene_.center()),
+                gltfScene_.radius() * maximumScale(gltfTransform))) continue;
+        visibleGltf.push_back(gltfTransform);
         gltfScene_.draw(viewProjection, gltfTransform, camera.position(),
-                        lightPosition, false);
+                        lightPosition, false, pointColors[0], environmentIntensity);
         stats_.drawCalls += gltfScene_.drawCount(false);
         stats_.submittedTriangles += gltfScene_.triangleCount(false);
     }
 
-    if (!showOnlyImportedModel_) {
-        environmentIbl_.renderSkybox(view, projection);
+    if (!showOnlyImportedModel_ && skyVisible) {
+        environmentIbl_.renderSkybox(view, projection, environmentRotation, environmentIntensity);
         ++stats_.drawCalls;
         stats_.submittedTriangles += 12;
     }
 
-    if (gltfVisible) {
+    // Transparent instances are submitted far-to-near; each asset also sorts
+    // its own transparent primitives. Interpenetrating surfaces remain limited.
+    std::stable_sort(visibleGltf.begin(), visibleGltf.end(), [&](const auto& a, const auto& b) {
+        const auto da = transformedCenter(a, gltfScene_.center()) - camera.position();
+        const auto db = transformedCenter(b, gltfScene_.center()) - camera.position();
+        return glm::dot(da, da) > glm::dot(db, db);
+    });
+    for (const auto& gltfTransform : visibleGltf) {
         gltfScene_.draw(viewProjection, gltfTransform, camera.position(),
-                        lightPosition, true);
+                        lightPosition, true, pointColors[0], environmentIntensity);
         stats_.drawCalls += gltfScene_.drawCount(true);
         stats_.submittedTriangles += gltfScene_.triangleCount(true);
     }
 
-    if (fluidSettings_.visible) {
+    for(const auto& object:scene.objects()) {
+        if(!object.visible || object.kind!=SceneObjectKind::Water || !object.waterSettings().visible) continue;
+        auto& runtime=fluidSystem(object.id);
         sceneTarget_.copyColorForSampling();
         sceneTarget_.copyDepthForSampling();
         sceneTarget_.bindColorCopy(0);
         sceneTarget_.bindDepthCopy(1);
         environmentIbl_.bind(2, 4, 5);
-        fluidSystem_.draw(viewProjection, camera.position(), lightPosition,
-                          framebufferWidth, framebufferHeight, fluidSettings_);
+        runtime.draw(viewProjection, camera.position(), lightPosition,
+                          framebufferWidth, framebufferHeight, object.waterSettings(), object.matrix(),
+                          pointColors[0],environmentRotation,environmentIntensity);
         ++stats_.drawCalls;
-        if (fluidSettings_.viewMode != 1)
-            stats_.submittedTriangles += fluidSystem_.triangleCount();
+        if (object.waterSettings().viewMode != 1)
+            stats_.submittedTriangles += runtime.triangleCount();
+    }
+    for(const auto& object:scene.objects()) if(object.visible && object.kind==SceneObjectKind::Smoke) {
+        smoke2D(object.id).drawScene(viewProjection,object.editorMatrix(),object.smokeSettings().opacity);
+        ++stats_.drawCalls; stats_.submittedTriangles+=2;
     }
 
-    if (particleSystem_.count() > 0) {
+    if (stats_.liveParticles > 0) {
         sceneTarget_.copyDepthForSampling();
         sceneTarget_.bindDepthCopy(0);
-        particleSystem_.draw(viewProjection, view, camera.position(),
-                             particleSettings_.preset, particleSettings_.soft);
-        ++stats_.drawCalls;
-        stats_.submittedTriangles += 2 * particleSystem_.count();
+        std::vector<const SceneObject*> emitters;
+        for (const auto& object : scene.objects())
+            if (object.visible && object.kind == SceneObjectKind::CpuEmitter) emitters.push_back(&object);
+        std::stable_sort(emitters.begin(), emitters.end(), [&](const auto* a, const auto* b) {
+            const auto da = a->position-camera.position(), db = b->position-camera.position();
+            return glm::dot(da,da) > glm::dot(db,db);
+        });
+        for (const auto* object : emitters) {
+            const auto runtime = cpuEmitters_.find(object->id);
+            if (runtime == cpuEmitters_.end() || !runtime->second->valid() || !runtime->second->count()) continue;
+            runtime->second->draw(viewProjection, view, camera.position(),
+                object->particleSettings().preset, object->particleSettings().soft, object->editorMatrix());
+            ++stats_.drawCalls;
+            stats_.submittedTriangles += 2 * runtime->second->count();
+        }
     }
 
-    if (gpuParticleSettings_.visible) {
-        gpuParticleSystem_.draw(viewProjection, view, gpuParticleSettings_);
+    for (const auto& object : scene.objects()) {
+        if (!object.visible || object.kind != SceneObjectKind::GpuEmitter || !object.gpuSettings().visible) continue;
+        const auto runtime = gpuEmitters_.find(object.id);
+        if (runtime == gpuEmitters_.end() || !runtime->second->valid()) continue;
+        runtime->second->draw(viewProjection, view, object.gpuSettings(), object.editorMatrix());
         ++stats_.drawCalls;
-        stats_.submittedTriangles += 2 * stats_.gpuParticleSlots;
+        stats_.submittedTriangles += 2 * runtime->second->slotCount(object.gpuSettings());
     }
 
     // Light markers are intentionally hidden in the imported-model test scene.
@@ -664,10 +766,10 @@ void Renderer::destroy() {
     blurBuffer_.destroy();
     animatedModel_.destroy();
     gltfScene_.destroy();
-    gpuParticleSystem_.destroy();
-    smoke2D_.destroy();
-    fluidSystem_.destroy();
-    particleSystem_.destroy();
+    gpuEmitters_.clear();
+    smokeObjects_.clear();
+    waterObjects_.clear();
+    cpuEmitters_.clear();
     environmentIbl_.destroy();
     mainProgram_.destroy();
     lightProgram_.destroy();

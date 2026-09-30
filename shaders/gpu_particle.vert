@@ -6,6 +6,7 @@ layout (location = 3) in float aAge;
 layout (location = 4) in float aLifetime;
 layout (location = 5) in float aSeed;
 uniform mat4 uViewProjection;
+uniform mat4 uEmitterTransform;
 uniform vec3 uCameraRight;
 uniform vec3 uCameraUp;
 uniform float uSize;
@@ -15,7 +16,8 @@ out vec4 vColor;
 void main() {
     float t = clamp(aAge / max(aLifetime, 0.001), 0.0, 1.0);
     float size = uSize * mix(1.0, 0.25, t);
-    vec3 world = aPosition + size * (aCorner.x * uCameraRight + aCorner.y * uCameraUp);
+    vec3 center = vec3(uEmitterTransform * vec4(aPosition, 1.0));
+    vec3 world = center + size * (aCorner.x * uCameraRight + aCorner.y * uCameraUp);
     gl_Position = uViewProjection * vec4(world, 1.0);
     vUv = aCorner * 0.5 + 0.5;
     if (uPreset == 1) vColor = vec4(0.55, 0.75, 1.0, 0.45 * (1.0-t));

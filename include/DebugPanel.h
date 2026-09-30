@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 struct EditorViewportSize {
     int width = 640;
@@ -15,18 +16,19 @@ struct RendererStats;
 class Renderer;
 class Camera;
 class Scene;
+class Project;
 
 // Displays renderer diagnostics over the final scene in the GLFW window.
 class DebugPanel {
 public:
-    explicit DebugPanel(GLFWwindow* window);
+    DebugPanel(GLFWwindow* window, Project& project);
     ~DebugPanel();
 
     DebugPanel(const DebugPanel&) = delete;
     DebugPanel& operator=(const DebugPanel&) = delete;
 
     bool valid() const;
-    EditorViewportSize beginFrame(Renderer& renderer, bool interactive);
+    EditorViewportSize beginFrame(Renderer& renderer, Scene& scene, bool interactive);
     bool sceneNavigating() const;
     void draw(
         Renderer& renderer,
@@ -44,15 +46,23 @@ public:
     );
 
 private:
-    void drawHierarchy(Renderer& renderer);
+    GLFWwindow* window_ = nullptr;
+    Project& project_;
+    bool showWater_ = false, showSmoke_ = false;
+    std::uint32_t activeWater_ = 0, activeSmoke_ = 0;
+    std::array<char,1024> projectPath_{};
+    bool openProjectPopup_ = false;
+    void drawHierarchy(Renderer& renderer, Scene& scene);
+    void drawGizmo(Renderer& renderer, Camera& camera, Scene& scene, bool interactive);
+    void objectActions(Scene& scene);
     void drawInspector(Renderer& renderer, Camera& camera, Scene& scene, float& metallic,
                        float& roughness, float& exposure, bool& bloomEnabled);
-    void drawAssets(Renderer& renderer);
+    void drawAssets(Renderer& renderer, Scene& scene);
     void drawConsole(Renderer& renderer);
     void drawProfiler(const RendererStats& stats, float fps, float deltaTime,
                       std::size_t cachedTextureCount);
-    void drawSmoke(Renderer& renderer, bool interactive);
-    void drawWater(Renderer& renderer, Camera& camera, const RendererStats& stats);
+    void drawSmoke(Renderer& renderer, Scene& scene, bool interactive);
+    void drawWater(Renderer& renderer, Scene& scene, Camera& camera, const RendererStats& stats);
     void log(const std::string& message);
     static constexpr std::size_t HistorySize = 120;
     std::array<float, HistorySize> frameTimes_{};
@@ -69,6 +79,14 @@ private:
     bool showConsole_ = true;
     bool showProfiler_ = true;
     int selectedEntity_ = 0;
+    std::uint32_t selectedObject_ = 0;
+    int gizmoOperation_ = 0;
+    bool localAxes_ = false;
+    bool snapEnabled_ = false;
+    float snapMove_ = .25f, snapAngle_ = 15.f, snapScale_ = .1f;
+    std::string assetDirectory_;
+    std::string selectedAsset_;
+    std::array<char, 128> assetSearch_{};
     float sceneLeft_ = 0.0f;
     float sceneTop_ = 0.0f;
     float sceneRight_ = 0.0f;

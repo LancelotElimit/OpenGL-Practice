@@ -348,13 +348,19 @@ void FluidSystem::rebuildSurface() {
 
 void FluidSystem::draw(const glm::mat4& viewProjection, const glm::vec3& camera,
                        const glm::vec3& light, int viewportWidth,
-                       int viewportHeight, const FluidSettings& settings) const {
+                       int viewportHeight, const FluidSettings& settings, const glm::mat4& model,
+                       const glm::vec3& lightColor, const glm::mat3& environmentRotation,
+                       float environmentIntensity) const {
     if (!valid_ || !settings.visible) return;
     program_.use();
+    glUniformMatrix4fv(program_.uniform("uModel"),1,GL_FALSE,glm::value_ptr(model));
     glUniformMatrix4fv(program_.uniform("uViewProjection"), 1, GL_FALSE,
                        glm::value_ptr(viewProjection));
     glUniform3fv(program_.uniform("uCamera"), 1, glm::value_ptr(camera));
     glUniform3fv(program_.uniform("uLight"), 1, glm::value_ptr(light));
+    glUniform3fv(program_.uniform("uLightColor"),1,glm::value_ptr(lightColor));
+    glUniformMatrix3fv(program_.uniform("uEnvironmentRotation"),1,GL_FALSE,glm::value_ptr(environmentRotation));
+    glUniform1f(program_.uniform("uEnvironmentIntensity"),environmentIntensity);
     glUniform1f(program_.uniform("uOpacity"),
                 glm::clamp(settings.opacity, 0.05f, 1.0f));
     glUniform2f(program_.uniform("uViewport"),

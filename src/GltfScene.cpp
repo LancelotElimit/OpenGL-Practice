@@ -114,6 +114,7 @@ void GltfScene::clearAsset() {
         glDeleteVertexArrays(1, &p.vao);
     }
     primitives_.clear();
+    pickingTriangles_.clear();
     if (!textures_.empty()) glDeleteTextures(static_cast<GLsizei>(textures_.size()), textures_.data());
     textures_.clear();
     materials_.clear();
@@ -245,6 +246,8 @@ bool GltfScene::load(const std::filesystem::path& path) {
                 if (indices.empty() || indices.size() % 3 != 0
                     || std::any_of(indices.begin(), indices.end(), [&](std::uint32_t i) { return i >= vertices.size(); })) continue;
                 Primitive p;
+                for (const auto index : indices)
+                    pickingTriangles_.push_back(glm::vec3(transform * glm::vec4(vertices[index].position, 1)));
                 p.transform = transform;
                 p.material = source.material;
                 p.indexCount = static_cast<GLsizei>(indices.size());
@@ -311,7 +314,7 @@ std::size_t GltfScene::drawCount(bool transparent) const {
 
 void GltfScene::draw(const glm::mat4& viewProjection, const glm::mat4& world,
                      const glm::vec3& camera, const glm::vec3& light,
-                     bool transparent) const {
+                     bool transparent, const glm::vec3& lightColor, float ambientIntensity) const {
     if (!valid_) return;
     program_.use();
     const char* samplers[] = {"uBase", "uMetalRough", "uNormal", "uOcclusion", "uEmissive"};
@@ -320,6 +323,8 @@ void GltfScene::draw(const glm::mat4& viewProjection, const glm::mat4& world,
                        glm::value_ptr(viewProjection));
     glUniform3fv(program_.uniform("uCamera"), 1, glm::value_ptr(camera));
     glUniform3fv(program_.uniform("uLight"), 1, glm::value_ptr(light));
+    glUniform3fv(program_.uniform("uLightColor"),1,glm::value_ptr(lightColor));
+    glUniform1f(program_.uniform("uAmbientIntensity"),ambientIntensity);
     const Material fallback;
     std::vector<const Primitive*> toDraw;
     for (const Primitive& p : primitives_) {

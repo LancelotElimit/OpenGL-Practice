@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShaderProgram.h"
+#include "SimulationSettings.h"
 
 #include <cstddef>
 #include <filesystem>
@@ -8,26 +9,6 @@
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
-
-struct FluidSettings {
-    bool visible = false;
-    bool showWindow = false;
-    bool paused = false;
-    bool pour = false;
-    float pourRate = 25.0f;
-    float gravity = 9.8f;
-    float pressure = 12.0f;
-    float viscosity = 0.12f;
-    float opacity = 0.78f;
-    float refraction = 0.025f;
-    float absorption = 1.1f;
-    float reflectivity = 0.75f;
-    float foam = 0.45f;
-    float roughness = 0.12f;
-    int surfaceHz = 30;
-    int shadingMode = 0; // water, refraction, Fresnel, normals
-    int viewMode = 0; // surface, particles, wireframe
-};
 
 // Small fixed-step WCSPH demonstration with CPU isosurface extraction.
 class FluidSystem {
@@ -44,7 +25,9 @@ public:
     void update(float deltaTime, const FluidSettings& settings);
     void draw(const glm::mat4& viewProjection, const glm::vec3& camera,
               const glm::vec3& light, int viewportWidth, int viewportHeight,
-              const FluidSettings& settings) const;
+              const FluidSettings& settings, const glm::mat4& model,
+              const glm::vec3& lightColor, const glm::mat3& environmentRotation,
+              float environmentIntensity) const;
     std::size_t particleCount() const;
     std::size_t triangleCount() const;
     float updateMilliseconds() const;

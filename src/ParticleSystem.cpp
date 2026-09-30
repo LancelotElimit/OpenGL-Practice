@@ -57,7 +57,7 @@ void ParticleSystem::update(float deltaTime, const ParticleSettings& settings) {
     std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
     for (int i = 0; i < requested && particles_.size() < MaxParticles; ++i) {
         Particle p;
-        p.position = glm::vec3(-1.7f, -0.35f, 0.3f);
+        p.position = glm::vec3(0.0f); // local to the owning emitter
         p.lifetime = std::max(0.1f, settings.lifetime)
             * (0.75f + 0.25f * (unit(random_) + 1.0f));
         p.startSize = std::max(0.001f, settings.startSize);
@@ -83,15 +83,16 @@ void ParticleSystem::update(float deltaTime, const ParticleSettings& settings) {
 
 void ParticleSystem::draw(const glm::mat4& viewProjection,
                           const glm::mat4& view,
-                          const glm::vec3& cameraPosition, int preset, bool soft) {
+                          const glm::vec3& cameraPosition, int preset, bool soft,
+                          const glm::mat4& emitterTransform) {
     if (!valid_ || particles_.empty()) return;
     // Back-to-front order is needed for standard alpha compositing.
     std::vector<const Particle*> sorted;
     sorted.reserve(particles_.size());
     for (const Particle& p : particles_) sorted.push_back(&p);
     std::sort(sorted.begin(), sorted.end(), [&](const Particle* a, const Particle* b) {
-        const glm::vec3 da = a->position - cameraPosition;
-        const glm::vec3 db = b->position - cameraPosition;
+        const glm::vec3 da = glm::vec3(emitterTransform * glm::vec4(a->position,1)) - cameraPosition;
+        const glm::vec3 db = glm::vec3(emitterTransform * glm::vec4(b->position,1)) - cameraPosition;
         return glm::dot(da, da) > glm::dot(db, db);
     });
     instances_.clear();
@@ -103,7 +104,10 @@ void ParticleSystem::draw(const glm::mat4& viewProjection,
         else if (preset == 2) color = glm::vec4(0.78f, 0.88f, 1.0f, 0.7f * (1.0f - t));
         else color = glm::vec4(3.0f, 1.2f * (1.0f - t) + 0.1f, 0.08f,
                                0.85f * (1.0f - t));
-        instances_.push_back({glm::vec4(p->position, size), color});
+        const auto worldPosition = glm::vec3(emitterTransform * glm::vec4(p->position,1));
+        const float sizeScale = std::max({glm::length(glm::vec3(emitterTransform[0])),
+            glm::length(glm::vec3(emitterTransform[1])), glm::length(glm::vec3(emitterTransform[2]))});
+        instances_.push_back({glm::vec4(worldPosition, size * sizeScale), color});
     }
     glBindBuffer(GL_ARRAY_BUFFER, instanceBuffer_);
     glBufferSubData(GL_ARRAY_BUFFER, 0, instances_.size() * sizeof(Instance),

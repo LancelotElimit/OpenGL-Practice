@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "Lancelot Sandbox",
+  "excludeObject": "Plane",
+  "modelRadius": 1.7,
+  "assetRoot": "../../assets",
+  "scene": "scene.json",
+  "assets": {
+    "model": "my_model/Mouse-5079f33c/obj/mouse_5.obj",
+    "environment": "sunset_jhbcentral_1k.hdr",
+    "animated": "SimpleSkin.gltf",
+    "gltf": "BoxTextured.glb",
+    "floorColor": "concrete_diff_1k.jpg",
+    "floorNormal": "concrete_nor_gl_1k.jpg",
+    "floorRoughness": "concrete_rough_1k.jpg",
+    "floorAO": "concrete_ao_1k.jpg"
+  }
+}

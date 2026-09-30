@@ -6,6 +6,21 @@
 
 完整说明请参阅：[项目完整文档](docs/PROJECT_GUIDE.md)
 
+## 对象编辑与独立项目
+
+引擎现在单独编译为 `LancelotEngine` 库，编辑器入口为 `src/EditorMain.cpp`。
+示例场景与资源引用位于 `projects/Sandbox`，不再由主循环硬编码创建。
+通过 `File → Open Project...` 输入 `.lancelot` 文件路径打开项目；`Ctrl+S`
+保存场景对象及资源引用，并生成 `.bak` 备份。也可把项目路径作为启动参数。
+
+模型、CPU/GPU 粒子、水、烟雾、平台、点光源、聚光灯、相机和环境都已纳入
+`Hierarchy`，可以添加、复制、删除、改名和编辑。水与烟雾实例具有独立参数与模拟状态；
+`Q/W/E` 分别控制移动、旋转、缩放，专用模拟面板编辑当前实例。
+所有 ImGui 面板统一使用 20px 微软雅黑（系统缺少该字体时回退默认字体）。
+
+项目格式、继承结构与实际限制见：[引擎与项目使用说明](docs/ENGINE_PROJECTS.md)。
+`projects/Minimal` 是不依赖 Sandbox 模型资源的最小项目，可用来验证项目切换。
+
 ## 效果对比与项目定位
 
 下面两张图是虚幻编辑器中的参考效果，用来对比“最终资产效果”和本项目的学习目标。
@@ -86,7 +101,7 @@
 
 ## 第二、三阶段：资产与粒子
 
-编辑器启动后即可用鼠标操作。`Assets` 页可以选择或输入 `.gltf` / `.glb` 路径并点击加载；`Hierarchy` 选择组件，`Inspector` 调整显示、动画和材质参数。程序默认加载 Khronos 的 `BoxTextured.glb` 作为材质示例；相对路径会从项目/可执行文件周围查找，也接受绝对路径。每个 Primitive 保留自己的材质，支持 Base Color、Metallic/Roughness（G/B 通道）、Normal、Occlusion、Emissive，以及 OPAQUE/MASK/BLEND 和双面材质。当前静态场景与蒙皮动画是两条独立路径：复杂 glTF 的蒙皮、Morph Target、扩展压缩纹理及完整材质扩展尚不支持。
+编辑器启动后即可用鼠标操作。独立的 `Resource Browser` 窗口可以逐级浏览资源文件夹、筛选文件，并选择或输入 `.gltf` / `.glb` 路径后点击加载；`Hierarchy` 选择模型实例或系统，`Inspector` 调整变换、显示、动画和材质参数。程序默认加载 Khronos 的 `BoxTextured.glb` 作为材质示例；相对路径会从项目/可执行文件周围查找，也接受绝对路径。每个 Primitive 保留自己的材质，支持 Base Color、Metallic/Roughness（G/B 通道）、Normal、Occlusion、Emissive，以及 OPAQUE/MASK/BLEND 和双面材质。当前静态场景与蒙皮动画是两条独立路径：复杂 glTF 的蒙皮、Morph Target、扩展压缩纹理及完整材质扩展尚不支持。
 
 `Particles` 区域有 Sparks、Smoke、Snow 三种预设，可实时调整发射率、寿命、速度、重力和起止大小。粒子在 CPU 上更新，按摄像机距离从远到近排序，一次实例化调用绘制面向摄像机的面片；透明渲染保留深度测试但关闭深度写入。软粒子使用不参与写入的深度副本淡化与实体几何的交界。面板显示实时存活数，上限为 4096。此阶段是可观察、可调的基础粒子系统，不包含流体模拟/表面重建，也不是 GPU 计算粒子。
 
@@ -125,7 +140,9 @@ OpenGL-Practice/
 │  └─ SimpleSkin.gltf       # CC0 glTF 骨骼动画示例
 │  └─ BoxTextured.glb       # Khronos 纹理材质示例
 ├─ src/
-│  ├─ main_clean.cpp        # 程序入口、资源准备和主循环
+│  ├─ EditorMain.cpp        # 打开项目的编辑器入口
+│  ├─ EngineApplication.cpp # 通用资源准备和主循环
+│  ├─ Project.cpp           # 项目与场景读写
 │  ├─ ShaderProgram.cpp     # Shader 编译、链接和 uniform 查询
 │  ├─ Camera.cpp            # 第一人称摄像机输入和 View 矩阵
 │  ├─ DebugPanel.cpp        # docking 编辑器与模块面板
@@ -175,12 +192,14 @@ OpenGL-Practice/
 └─ README.md
 ```
 
-`main_clean.cpp` 现在只负责准备资源和运行“输入、更新、渲染、显示”主循环。原来的 `main.cpp` 保留作为早期练习记录，CMake 不会编译它。
+`EditorMain.cpp` 负责打开项目，`EngineApplication.cpp` 运行通用的“输入、更新、渲染、显示”主循环。原来的 `main.cpp` 保留作为早期练习记录，CMake 不会编译它。
 
 ## 模块职责
 
 ```text
-main_clean.cpp   → 准备资源并运行主循环
+EditorMain.cpp   → 打开项目并启动引擎
+Project.cpp      → 读取资源引用、保存和加载场景
+EngineApplication.cpp → 准备资源并运行主循环
 ShaderProgram    → 从 shaders/ 读取 GLSL、编译/链接并查询 uniform
 Camera           → 处理 WASD/鼠标，生成 View 矩阵
 DebugPanel       → 在最终画面上叠加实时统计与可调参数
@@ -223,6 +242,13 @@ cmake --build build --config Debug
 
 ## 操作方式
 
+- 左键点击场景模型或 `Hierarchy > Scene Objects`：选中实例；点击场景空白：取消选择
+- `Q`：移动工具；拖动红 / 绿 / 蓝轴分别沿 X / Y / Z 移动
+- `W`：旋转工具；拖动对应轴的旋转环
+- `E`：缩放工具；拖动对应轴进行单轴缩放（局部轴），中心手柄统一缩放
+- `Inspector`：名称、可见性、位置、角度、缩放；可切换局部轴与吸附步长
+- `Ctrl+D`：复制选中实例；`Delete`：移除场景实例，也可用目录按钮或右键菜单
+- `F`：在场景视图内聚焦选中实例
 - 场景视图中按住鼠标右键拖动：旋转摄像机；同时按 `W/A/S/D`：移动摄像机
 - `ESC`：退出程序
 - 按住 `F1`：显示聚光灯阴影深度图
@@ -233,7 +259,19 @@ cmake --build build --config Debug
 - `Z/X`：降低/提高模型金属度
 - `C/V`：降低/提高模型粗糙度
 
-界面布局为 `Hierarchy | Scene View | Inspector`，底部停靠 `Assets / Output / Profiler / 2D Smoke Lab`。窗口可以拖动、停靠、关闭并从 `Window` 菜单重新打开；布局保存在本机的 `OpenGLPractice/editor_layout.ini`，菜单可恢复默认布局。在 `Hierarchy` 选中 `Imported OBJ` 后，`Inspector` 可编辑相对位置、旋转、缩放和材质参数。`Profiler` 显示 FPS、帧时间、Draw Call、三角形、粒子与流体统计。窗口标题约每 0.25 秒刷新简要统计；三角形数包含阴影和后处理 Pass 的重复绘制，不含编辑器自身的绘制。
+Windows 下仅在文本输入框内关联中文输入法，避免输入法截走场景 Q/W/E；这是本程序窗口的输入处理，不改变系统输入法设置。
+
+界面布局为 `Hierarchy | Scene View | Inspector`，底部停靠 `Resource Browser / Output / Profiler / 2D Smoke Lab`。各窗口可以拖动、停靠、关闭并从 `Window` 菜单重新打开；布局保存在本机的 `OpenGLPractice/editor_layout.ini`，菜单可恢复默认布局。对象轴以归一化模型的中心为基准；移动/旋转可选世界或局部轴，单轴缩放使用局部轴，避免旋转后引入剪切。右键相机导航和文本输入期间不会触发对象快捷键。`Profiler` 显示 FPS、帧时间、Draw Call、三角形、粒子与流体统计；统计包含渲染 Pass 的重复绘制，不含编辑器自身的绘制。
+
+实例编辑覆盖模型、粒子、水、烟雾、平台、灯光、相机和环境。静态 OBJ/glTF 与平台、烟雾平面点击选择检测三角形，蒙皮模型和水暂用包围球，不处理透明纹理的空洞。复制共享模型资源，但变换和模拟参数独立；OBJ 材质和蒙皮动画仍共享。加载新 glTF 会替换全部 glTF 实例使用的共享资源。删除只移除场景实例，不删除磁盘文件；Ctrl+S 保存编辑结果，尚无撤销/重做。烟雾目前是二维模拟的场景显示面，不是真正的体积烟雾。
+
+### 粒子发射器对象
+
+`Hierarchy > Scene Objects` 包含 `CPU Particle Emitter` 和 `GPU Particle Emitter`。在目录选中，或点击场景中黄色 CPU / 蓝色 GPU 原点标记后，使用 Q/W/E 编辑变换。通过 `Add particle emitter` 新建，Ctrl+D 复制，Delete 删除；每个发射器有独立参数和模拟状态，复制只复制配置，不复制已经生成的粒子。Inspector 可切换预设、调整发射率/寿命/重力，并单独重置发射器。
+
+粒子在发射器局部空间模拟，已有粒子随对象整体移动；旋转同时旋转发射方向和局部重力，缩放改变粒子分布范围。Billboard 始终朝向摄像机，粒子尺寸按对象最大轴缩放，不把单个粒子片拉成椭圆。隐藏对象会停止显示并冻结模拟；CPU 关闭 Emit 则停止生成新粒子，已有粒子继续消亡。GPU 可独立暂停或停止发射。CPU 粒子按发射器距离及各发射器内部粒子排序，不是跨发射器逐粒子的全局排序，交叉烟雾仍可能存在透明混合限制。每增加一个 GPU 发射器都会增加独立缓冲区和更新开销。
+
+场景回归测试：构建后运行 `ctest --test-dir out/build/x64-Debug --output-on-failure`，覆盖实例编号、复制删除、隐藏、资源模板保留、射线选择和 Gizmo 矩阵分解。
 
 ## 渲染流程概览
 

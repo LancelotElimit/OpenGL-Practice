@@ -26,6 +26,16 @@ uniform vec3 uLightPosition;
 uniform vec3 uLightPosition2;
 uniform vec3 uLightColor;
 uniform vec3 uLightColor2;
+uniform int uPointCount;
+uniform vec3 uPointPositions[8];
+uniform vec3 uPointColors[8];
+uniform int uSpotCount;
+uniform vec3 uSpotPositions[4];
+uniform vec3 uSpotDirections[4];
+uniform vec3 uSpotColors[4];
+uniform float uEnvironmentIntensity;
+uniform mat3 uEnvironmentRotation;
+uniform bool uOverrideRoughness;
 uniform vec3 uSpotLightPosition;
 uniform vec3 uSpotLightDirection;
 uniform vec3 uSpotLightColor;
@@ -180,7 +190,7 @@ void main() {
     vec3 sampledAlbedo = texture(uTexture, materialUv).rgb;
     vec3 albedo = pow(sampledAlbedo, vec3(2.2)) * uMaterialColor;
     float metallic = uMetallic;
-    float roughness = uUsePbrMaps
+    float roughness = uUsePbrMaps && !uOverrideRoughness
         ? texture(uRoughnessMap, materialUv).r
         : uRoughness;
     float ao = uUsePbrMaps
@@ -189,18 +199,14 @@ void main() {
     roughness = clamp(roughness, 0.05, 1.0);
     vec3 baseReflectance = mix(vec3(0.04), albedo, metallic);
 
-    vec3 directLighting = evaluateDirectLight(
-        uLightPosition, uLightColor, normal, viewDirection,
-        albedo, baseReflectance, metallic, roughness,
-        1.0 - calculatePointShadow()
-    );
-    directLighting += evaluateDirectLight(
-        uLightPosition2, uLightColor2, normal, viewDirection,
-        albedo, baseReflectance, metallic, roughness, 1.0
-    );
+    vec3 directLighting = vec3(0);
+    for(int i=0;i<uPointCount;++i) directLighting+=evaluateDirectLight(
+        uPointPositions[i],uPointColors[i],normal,viewDirection,albedo,baseReflectance,metallic,roughness,
+        i==0 ? 1.0-calculatePointShadow() : 1.0);
 
-    vec3 spotDirection = normalize(uSpotLightPosition - worldPosition);
-    float theta = dot(spotDirection, normalize(-uSpotLightDirection));
+    for(int i=0;i<uSpotCount;++i) {
+    vec3 spotDirection = normalize(uSpotPositions[i] - worldPosition);
+    float theta = dot(spotDirection, normalize(-uSpotDirections[i]));
     float cone = clamp(
         (theta - uSpotOuterCutoff)
             / (uSpotInnerCutoff - uSpotOuterCutoff),
@@ -208,24 +214,25 @@ void main() {
         1.0
     );
     directLighting += evaluateDirectLight(
-        uSpotLightPosition, uSpotLightColor, normal, viewDirection,
+        uSpotPositions[i], uSpotColors[i], normal, viewDirection,
         albedo, baseReflectance, metallic, roughness,
-        cone * (1.0 - calculateSpotShadow(normal))
+        cone * (i==0 ? 1.0 - calculateSpotShadow(normal) : 1.0)
     );
+    }
 
     float nDotV = max(dot(normal, viewDirection), 0.0);
     vec3 fresnel = fresnelSchlickRoughness(
         nDotV, baseReflectance, roughness
     );
     vec3 diffuseWeight = (vec3(1.0) - fresnel) * (1.0 - metallic);
-    vec3 diffuseIbl = texture(uIrradianceMap, normal).rgb * albedo;
+    vec3 diffuseIbl = texture(uIrradianceMap, uEnvironmentRotation * normal).rgb * albedo;
     vec3 reflection = reflect(-viewDirection, normal);
     vec3 prefiltered = textureLod(
-        uPrefilterMap, reflection, roughness * 4.0
+        uPrefilterMap, uEnvironmentRotation * reflection, roughness * 4.0
     ).rgb;
     vec2 brdf = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
     vec3 specularIbl = prefiltered * (fresnel * brdf.x + brdf.y);
-    vec3 ambient = (diffuseWeight * diffuseIbl + specularIbl) * ao;
+    vec3 ambient = (diffuseWeight * diffuseIbl + specularIbl) * ao * uEnvironmentIntensity;
 
     FragColor = vec4(ambient + directLighting, 1.0);
 }

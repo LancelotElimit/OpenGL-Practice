@@ -3,6 +3,9 @@ in vec3 vWorld;
 in vec3 vNormal;
 uniform vec3 uCamera;
 uniform vec3 uLight;
+uniform vec3 uLightColor;
+uniform mat3 uEnvironmentRotation;
+uniform float uEnvironmentIntensity;
 uniform vec2 uViewport;
 uniform float uOpacity;
 uniform float uRefraction;
@@ -47,12 +50,12 @@ void main() {
     vec3 refracted = mix(vec3(0.015, 0.18, 0.29), background, transmittance);
 
     float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
-    vec3 reflected = textureLod(uEnvironment, reflect(-V, N),
-                                uRoughness * 4.0).rgb;
+    vec3 reflected = textureLod(uEnvironment, uEnvironmentRotation * reflect(-V, N),
+                                uRoughness * 4.0).rgb * uEnvironmentIntensity;
     vec3 color = mix(refracted, reflected,
                      clamp(fresnel * uReflectivity, 0.0, 1.0));
     vec3 H = normalize(V + L);
-    color += vec3(1.2, 1.25, 1.35)
+    color += vec3(1.2, 1.25, 1.35) * uLightColor / 3.0
         * pow(max(dot(N, H), 0.0), mix(150.0, 16.0, uRoughness))
         * (1.0 - uRoughness);
     float shallow = 1.0 - smoothstep(0.015, 0.24, thickness);

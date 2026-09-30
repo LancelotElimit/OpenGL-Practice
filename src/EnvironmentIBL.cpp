@@ -484,11 +484,15 @@ void EnvironmentIBL::bind(
 
 void EnvironmentIBL::renderSkybox(
     const glm::mat4& view,
-    const glm::mat4& projection
+    const glm::mat4& projection,
+    const glm::mat3& sampleRotation,
+    float intensity
 ) const {
     glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_FALSE);
     skyboxProgram_.use();
+    glUniformMatrix3fv(skyboxProgram_.uniform("uSampleRotation"),1,GL_FALSE,glm::value_ptr(sampleRotation));
+    glUniform1f(skyboxProgram_.uniform("uIntensity"),intensity);
     glUniformMatrix4fv(
         skyboxProgram_.uniform("uView"),
         1,

@@ -5,6 +5,8 @@ in vec2 vUv;
 out vec4 FragColor;
 uniform vec3 uCamera;
 uniform vec3 uLight;
+uniform vec3 uLightColor;
+uniform float uAmbientIntensity;
 uniform vec4 uBaseFactor;
 uniform vec3 uEmissiveFactor;
 uniform float uMetallic;
@@ -67,7 +69,7 @@ void main() {
     float ao = uHasOcclusion ? texture(uOcclusion, vUv).r : 1.0;
     vec3 emissive = uEmissiveFactor;
     if (uHasEmissive) emissive *= pow(texture(uEmissive, vUv).rgb, vec3(2.2));
-    vec3 color = (diffuse + specular) * NoL * 35.0 / distance2
-        + base.rgb * 0.1 * ao + emissive;
+    vec3 color = (diffuse + specular) * NoL * (35.0 / 3.0) * uLightColor / distance2
+        + base.rgb * 0.1 * ao * uAmbientIntensity + emissive;
     FragColor = vec4(color, base.a);
 }

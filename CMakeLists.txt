@@ -47,6 +47,17 @@ target_include_directories(imgui PUBLIC
 )
 target_link_libraries(imgui PUBLIC glfw opengl32)
 
+FetchContent_Declare(imguizmo
+    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG 18cef5e031d8c6973d80284c67f60549fafd78c1)
+FetchContent_GetProperties(imguizmo)
+if(NOT imguizmo_POPULATED)
+    FetchContent_Populate(imguizmo)
+endif()
+add_library(imguizmo STATIC "${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp")
+target_include_directories(imguizmo PUBLIC "${imguizmo_SOURCE_DIR}/src")
+target_link_libraries(imguizmo PUBLIC imgui)
+
 # GLM: CPU-side vector and matrix mathematics.
 FetchContent_Declare(
     glm
@@ -93,6 +104,8 @@ if(NOT tinyobjloader_POPULATED)
 endif()
 
 # Download one small PNG test image used by the texture-loading example.
+option(LANCELOT_FETCH_SAMPLE_ASSETS "Download assets for the Sandbox sample project" ON)
+if(LANCELOT_FETCH_SAMPLE_ASSETS)
 set(TEST_TEXTURE_PATH "${CMAKE_SOURCE_DIR}/assets/basi6a08.png")
 if(NOT EXISTS "${TEST_TEXTURE_PATH}")
     file(DOWNLOAD
@@ -173,6 +186,8 @@ if(NOT EXISTS "${BOX_TEXTURED_PATH}")
     endif()
 endif()
 
+endif() # LANCELOT_FETCH_SAMPLE_ASSETS
+
 # GLAD: loads modern OpenGL functions after GLFW creates the context.
 FetchContent_Declare(
     glad
@@ -187,8 +202,9 @@ if(NOT glad_POPULATED)
     glad_add_library(glad_gl_core_33 STATIC REPRODUCIBLE LOADER API gl:core=3.3)
 endif()
 
-add_executable(OpenGLPractice
-    src/main_clean.cpp
+add_library(LancelotEngine STATIC
+    src/EngineApplication.cpp
+    src/Project.cpp
     src/AssetPaths.cpp
     src/BlurBuffer.cpp
     src/Camera.cpp
@@ -214,6 +230,8 @@ add_executable(OpenGLPractice
     src/TextureCache.cpp
     src/Window.cpp
 )
+add_executable(OpenGLPractice src/EditorMain.cpp)
+target_link_libraries(OpenGLPractice PRIVATE LancelotEngine)
 
 set(SHADER_FILES
     shaders/main.vert
@@ -246,13 +264,15 @@ set(SHADER_FILES
     shaders/fluid.vert
     shaders/fluid.frag
     shaders/fluid2d.frag
+    shaders/smoke_scene.vert
+    shaders/smoke_scene.frag
     shaders/gpu_particle_update.vert
     shaders/gpu_particle_update.frag
     shaders/gpu_particle.vert
     shaders/gpu_particle.frag
 )
 
-target_sources(OpenGLPractice PRIVATE ${SHADER_FILES})
+target_sources(LancelotEngine PRIVATE ${SHADER_FILES})
 set_source_files_properties(${SHADER_FILES} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 add_custom_command(
@@ -263,19 +283,33 @@ add_custom_command(
     COMMENT "Copying GLSL shader files next to the executable"
 )
 
-target_link_libraries(OpenGLPractice
-    PRIVATE
+target_link_libraries(LancelotEngine
+    PUBLIC
         glfw
         imgui
+        imguizmo
         glad_gl_core_33
         glm::glm
         opengl32
+        imm32
 )
 
-target_include_directories(OpenGLPractice
-    PRIVATE
+target_include_directories(LancelotEngine
+    PUBLIC
         "${CMAKE_SOURCE_DIR}/include"
+    PRIVATE
         "${stb_image_SOURCE_DIR}"
         "${tinyobjloader_SOURCE_DIR}"
         "${tinygltf_SOURCE_DIR}"
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(SceneEditorTests tests/SceneEditorTests.cpp)
+    target_include_directories(SceneEditorTests PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    target_link_libraries(SceneEditorTests PRIVATE LancelotEngine)
+    add_test(NAME SceneEditorTests COMMAND SceneEditorTests)
+    add_executable(ProjectTests tests/ProjectTests.cpp)
+    target_link_libraries(ProjectTests PRIVATE LancelotEngine)
+    add_test(NAME ProjectTests COMMAND ProjectTests "${CMAKE_SOURCE_DIR}/projects/Sandbox/Sandbox.lancelot")
+endif()

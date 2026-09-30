@@ -83,7 +83,7 @@ void GpuParticleSystem::reset(const GpuParticleSettings& settings) {
     std::vector<Particle> particles(MaxParticles);
     const float rate = std::max(settings.emissionRate, 1.0f);
     for (int i = 0; i < MaxParticles; ++i) {
-        particles[i].position = glm::vec3(-1.45f, -0.2f, 0.25f);
+        particles[i].position = glm::vec3(0.0f);
         particles[i].age = -static_cast<float>(i) / rate;
         particles[i].lifetime = std::max(settings.lifetime, 0.1f);
         particles[i].seed = static_cast<float>(i) * 0.6180339f;
@@ -129,16 +129,20 @@ void GpuParticleSystem::update(float deltaTime, const GpuParticleSettings& setti
 
 void GpuParticleSystem::draw(const glm::mat4& viewProjection,
                              const glm::mat4& view,
-                             const GpuParticleSettings& settings) const {
+                             const GpuParticleSettings& settings, const glm::mat4& emitterTransform) const {
     if (!valid_ || !settings.visible) return;
     renderProgram_.use();
+    glUniformMatrix4fv(renderProgram_.uniform("uEmitterTransform"), 1, GL_FALSE,
+                       glm::value_ptr(emitterTransform));
     glUniformMatrix4fv(renderProgram_.uniform("uViewProjection"), 1, GL_FALSE,
                        glm::value_ptr(viewProjection));
     glUniform3fv(renderProgram_.uniform("uCameraRight"), 1,
                  glm::value_ptr(glm::vec3(view[0][0], view[1][0], view[2][0])));
     glUniform3fv(renderProgram_.uniform("uCameraUp"), 1,
                  glm::value_ptr(glm::vec3(view[0][1], view[1][1], view[2][1])));
-    glUniform1f(renderProgram_.uniform("uSize"), settings.size);
+    const float sizeScale = std::max({glm::length(glm::vec3(emitterTransform[0])),
+        glm::length(glm::vec3(emitterTransform[1])), glm::length(glm::vec3(emitterTransform[2]))});
+    glUniform1f(renderProgram_.uniform("uSize"), settings.size * sizeScale);
     glUniform1i(renderProgram_.uniform("uPreset"), settings.preset);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);

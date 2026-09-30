@@ -28,7 +28,9 @@ public:
         const glm::mat4& viewProjection,
         const glm::mat4& modelTransform,
         const glm::vec3& cameraPosition,
-        const glm::vec3& lightPosition
+        const glm::vec3& lightPosition,
+        const glm::vec3& lightColor,
+        float ambientIntensity
     ) const;
     const glm::vec3& boundsCenter() const;
     float boundsRadius() const;

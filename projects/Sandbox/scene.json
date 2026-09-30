@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "objects": [
+    {"type":"OBJ","name":"Imported model","position":[0,0,0]},
+    {"type":"glTF","position":[2.1,0.4,-1]},
+    {"type":"Skinned Model","visible":false,"position":[-2.2,-0.5,-1.2]},
+    {"type":"CPU Particle Emitter","position":[-1.7,-0.35,0.3]},
+    {"type":"GPU Particle Emitter","position":[-1.45,-0.2,0.25]},
+    {"type":"Water","position":[1.15,0.25,0],"settings":{"visible":false}},
+    {"type":"Smoke","position":[-2,1,-1.8],"settings":{"showWindow":false}},
+    {"type":"Platform","position":[0,-0.5,0]},
+    {"type":"Point Light","name":"Warm point light","position":[2,1.5,2],"settings":{"color":[1,0.9,0.73],"intensity":3}},
+    {"type":"Point Light","name":"Blue point light","position":[-2,0.75,-2],"settings":{"color":[0.25,0.45,1],"intensity":3}},
+    {"type":"Spot Light","position":[0,2,3],"rotation":[-30,0,0],"settings":{"intensity":5}},
+    {"type":"Camera","name":"Scene camera","position":[0,1.5,4],"rotation":[-20,0,0]},
+    {"type":"Environment","name":"HDR environment"}
+  ]
+}
