@@ -205,6 +205,7 @@ endif()
 add_library(LancelotEngine STATIC
     src/EngineApplication.cpp
     src/Project.cpp
+    src/PlaySession.cpp
     src/AssetPaths.cpp
     src/BlurBuffer.cpp
     src/Camera.cpp
@@ -231,7 +232,10 @@ add_library(LancelotEngine STATIC
     src/Window.cpp
 )
 add_executable(OpenGLPractice src/EditorMain.cpp)
-target_link_libraries(OpenGLPractice PRIVATE LancelotEngine)
+add_library(LancelotProjectScripts STATIC projects/Sandbox/Scripts/PlayerController.cpp)
+target_include_directories(LancelotProjectScripts PUBLIC "${CMAKE_SOURCE_DIR}/projects/Sandbox/Scripts")
+target_link_libraries(LancelotProjectScripts PUBLIC LancelotEngine)
+target_link_libraries(OpenGLPractice PRIVATE LancelotProjectScripts)
 
 set(SHADER_FILES
     shaders/main.vert
@@ -312,4 +316,7 @@ if(BUILD_TESTING)
     add_executable(ProjectTests tests/ProjectTests.cpp)
     target_link_libraries(ProjectTests PRIVATE LancelotEngine)
     add_test(NAME ProjectTests COMMAND ProjectTests "${CMAKE_SOURCE_DIR}/projects/Sandbox/Sandbox.lancelot")
+    add_executable(PlaySessionTests tests/PlaySessionTests.cpp)
+    target_link_libraries(PlaySessionTests PRIVATE LancelotProjectScripts)
+    add_test(NAME PlaySessionTests COMMAND PlaySessionTests)
 endif()

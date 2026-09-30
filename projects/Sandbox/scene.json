@@ -1,7 +1,7 @@
 {
   "version": 1,
   "objects": [
-    {"type":"OBJ","name":"Imported model","position":[0,0,0]},
+    {"type":"OBJ","name":"Player","position":[0,0,0],"script":{"type":"PlayerController","mainCharacter":true,"moveSpeed":2.5,"followCamera":true}},
     {"type":"glTF","position":[2.1,0.4,-1]},
     {"type":"Skinned Model","visible":false,"position":[-2.2,-0.5,-1.2]},
     {"type":"CPU Particle Emitter","position":[-1.7,-0.35,0.3]},

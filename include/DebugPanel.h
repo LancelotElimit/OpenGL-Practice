@@ -17,11 +17,12 @@ class Renderer;
 class Camera;
 class Scene;
 class Project;
+class PlaySession;
 
 // Displays renderer diagnostics over the final scene in the GLFW window.
 class DebugPanel {
 public:
-    DebugPanel(GLFWwindow* window, Project& project);
+    DebugPanel(GLFWwindow* window, Project& project, PlaySession& play);
     ~DebugPanel();
 
     DebugPanel(const DebugPanel&) = delete;
@@ -30,6 +31,8 @@ public:
     bool valid() const;
     EditorViewportSize beginFrame(Renderer& renderer, Scene& scene, bool interactive);
     bool sceneNavigating() const;
+    bool gameInputFocused() const { return gameInputFocused_; }
+    void runtimeMessage(const std::string& message) { log(message); }
     void draw(
         Renderer& renderer,
         Camera& camera,
@@ -48,6 +51,8 @@ public:
 private:
     GLFWwindow* window_ = nullptr;
     Project& project_;
+    PlaySession& play_;
+    bool gameInputFocused_=false;
     bool showWater_ = false, showSmoke_ = false;
     std::uint32_t activeWater_ = 0, activeSmoke_ = 0;
     std::array<char,1024> projectPath_{};

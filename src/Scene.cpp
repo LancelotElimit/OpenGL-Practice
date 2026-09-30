@@ -117,6 +117,7 @@ std::uint32_t Scene::duplicate(std::uint32_t id) {
     const auto* source = find(id);
     if (!source) return 0;
     auto copy = source->clone();
+    copy->script.mainCharacter=false; // A clone does not steal player input.
     copy->id = nextId_++;
     copy->name += " Copy";
     copy->position.x += .35f;

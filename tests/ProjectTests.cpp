@@ -11,6 +11,8 @@ int main(int argc,char** argv) {
     Scene scene;
     require(sample.loadScene(scene),"sample scene loads");
     require(scene.objects().size()==13,"all sample contents are objects");
+    require(scene.find(1)->script.mainCharacter && scene.find(1)->script.type=="PlayerController",
+        "project loads main character and compiled script binding");
     require(dynamic_cast<WaterObject*>(scene.find(6)) && dynamic_cast<SmokeObject*>(scene.find(7))
         && dynamic_cast<PlatformObject*>(scene.find(8)),"concrete inherited object types retained");
     const auto copy=scene.duplicate(6);
@@ -34,6 +36,8 @@ int main(int argc,char** argv) {
     Scene restored;
     require(independent.loadScene(restored),"saved scene reloads");
     require(restored.objects().size()==14,"duplicated object persists");
+    require(restored.find(1)->script.mainCharacter && restored.find(1)->script.moveSpeed==2.5f
+        && restored.find(1)->script.followCamera,"script properties survive scene save/load");
     require(restored.find(copy)->waterSettings().viscosity==.8f
         && restored.find(copy)->position==glm::vec3(4,5,6),"simulation settings and transform persist");
     require(dynamic_cast<WaterObject*>(restored.find(copy))!=nullptr,"save/load preserves subclass");

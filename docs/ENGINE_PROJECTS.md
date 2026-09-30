@@ -5,7 +5,8 @@
 `LancelotEngine` 是独立的 CMake 静态库，包含公共对象、资源加载、模拟、渲染和编辑 UI。
 `OpenGLPractice` 是很薄的编辑器启动程序，不再创建固定示例对象。
 项目是数据目录，通过 `.lancelot` 引用资源根目录与场景 JSON；可放在引擎仓库以外。
-这次是库边界与项目数据的拆分，不是完成了脚本模块、插件系统或独立安装包。
+项目 C++ 脚本另编译为 `LancelotProjectScripts` 并通过注册表接入，详见
+[运行模式](PLAY_MODE.md)。这不是动态脚本模块、插件系统或独立安装包。
 
 ```text
 OpenGLPractice / EditorMain
@@ -101,8 +102,9 @@ Renderer 按对象 ID 管理 CPU/GPU 粒子、水与烟雾的独立运行状态�
 - 主 OBJ/平台路径最多 8 个点光源与 4 个聚光灯；每类只有第一个生成阴影。
   glTF、蒙皮和水当前只取第一个点光源的颜色与强度，不是统一的完整多光源渲染。
 - 环境贴图是项目级共享资源；多个环境强度相加，使用首个可见环境的旋转。
-- 尚无撤销/重做、对象父子层级、通用脚本、资源热重载和运行状态快照。
+- 已有编译式 C++ 脚本绑定与 Play/Pause/Stop；尚无撤销/重做、对象父子层级、脚本热重载、资源热重载和运行状态持久快照。
 
 构建可用 `-DLANCELOT_FETCH_SAMPLE_ASSETS=OFF` 禁止下载 Sandbox 示例资源。
 这不关闭引擎依赖库的下载。测试通过 CTest 运行：`SceneEditorTests` 与 `ProjectTests`，
 验证变换、拾取、复制、外部项目打开、保存重载和错误场景的事务性加载。
+新增 `PlaySessionTests` 验证运行模式、主角控制与脚本生命周期。

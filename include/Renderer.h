@@ -55,6 +55,7 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     bool valid() const;
+    void resetSimulation();
     const RendererStats& stats() const;
     GLuint viewportTexture() const;
     void setShowOnlyImportedModel(bool enabled);
@@ -84,7 +85,8 @@ public:
         float exposure,
         float modelMetallic,
         float modelRoughness,
-        float timeSeconds
+        float timeSeconds,
+        bool updateSimulation=true
     );
     void destroy();
 

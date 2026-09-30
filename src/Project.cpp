@@ -68,6 +68,16 @@ bool Project::loadScene(Scene& scene) {
             if(kind==SceneObjectKind::Count) throw std::runtime_error("Unknown object type: "+type);
             auto& object=*candidate.find(candidate.add(kind));
             object.name=entry.value("name",type); object.visible=entry.value("visible",true);
+            const auto script=entry.value("script",json::object());
+            object.script.type=script.value("type",std::string{});
+            object.script.enabled=script.value("enabled",true);
+            object.script.mainCharacter=script.value("mainCharacter",false);
+            object.script.followCamera=script.value("followCamera",true);
+            object.script.faceMovement=script.value("faceMovement",false);
+            object.script.moveSpeed=script.value("moveSpeed",2.5f);
+            object.script.cameraOffset=vector(script.value("cameraOffset",json::array({0,2,5})));
+            if(!std::isfinite(object.script.moveSpeed) || object.script.moveSpeed<0 || object.script.moveSpeed>100)
+                throw std::runtime_error("Script move speed must be in [0,100]");
             object.position=vector(entry.value("position",vector(object.position)));
             object.rotation=vector(entry.value("rotation",vector(object.rotation)));
             object.scale=vector(entry.value("scale",vector(object.scale)));
@@ -108,7 +118,11 @@ bool Project::saveScene(const Scene& scene) {
             if(const auto* camera=dynamic_cast<const CameraObject*>(&object)) settings={{"fov",camera->fov}};
             if(const auto* environment=dynamic_cast<const EnvironmentObject*>(&object)) settings={{"sky",environment->settings.sky},{"intensity",environment->settings.intensity}};
             data["objects"].push_back({{"type",Scene::typeName(object.kind)},{"name",object.name},{"visible",object.visible},
-                {"position",vector(object.position)},{"rotation",vector(object.rotation)},{"scale",vector(object.scale)},{"settings",settings}});
+                {"position",vector(object.position)},{"rotation",vector(object.rotation)},{"scale",vector(object.scale)},{"settings",settings},
+                {"script",{{"type",object.script.type},{"enabled",object.script.enabled},
+                    {"mainCharacter",object.script.mainCharacter},{"followCamera",object.script.followCamera},
+                    {"faceMovement",object.script.faceMovement},{"moveSpeed",object.script.moveSpeed},
+                    {"cameraOffset",vector(object.script.cameraOffset)}}}});
         }
         const auto text=data.dump(2);
         std::filesystem::copy_file(scenePath_,scenePath_.string()+".bak",std::filesystem::copy_options::overwrite_existing);

@@ -24,6 +24,7 @@ public:
 
     bool valid() const;
     void update(float timeSeconds);
+    void resetPlayback() { playbackTime_=0; lastUpdateTime_=-1; blendRemaining_=0; previousClipPose_.clear(); }
     void draw(
         const glm::mat4& viewProjection,
         const glm::mat4& modelTransform,

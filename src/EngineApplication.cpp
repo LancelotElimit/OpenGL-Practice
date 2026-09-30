@@ -15,6 +15,7 @@
 #include "Window.h"
 #include "Project.h"
 #include "EngineApplication.h"
+#include "PlaySession.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -26,7 +27,7 @@
 #include <iostream>
 #include <sstream>
 
-int EngineApplication::run(Project& project) {
+int EngineApplication::run(Project& project,const ScriptRegistry& scripts) {
     setProjectAssetRoot(project.assetRoot());
     Window applicationWindow(1440, 900, project.name().c_str());
     if (!applicationWindow.valid()) {
@@ -146,7 +147,8 @@ int EngineApplication::run(Project& project) {
     normalTexture.createRGBA(1, 1, normalPixels);
 
     Camera camera(glm::vec3(0.0f, 1.5f, 4.0f), -90.0f, -20.0f);
-    Scene scene;
+    Scene editingScene;
+    Scene& scene=editingScene;
     const float targetModelRadius = project.modelRadius();
     const float modelScale = targetModelRadius
         / std::max(model.boundsRadius(), 0.001f);
@@ -201,7 +203,8 @@ int EngineApplication::run(Project& project) {
 
     if (!project.loadScene(scene)) { std::cerr << project.error() << '\n'; return 1; }
     renderer.showGltfModel() = true;
-    DebugPanel debugPanel(window, project);
+    PlaySession play(scripts);
+    DebugPanel debugPanel(window, project, play);
     if (!debugPanel.valid()) {
         std::cerr << "Could not initialize the diagnostics panel.\n";
         return 1;
@@ -219,19 +222,39 @@ int EngineApplication::run(Project& project) {
     float statsUpdateTime = lastFrameTime;
     float displayedFps = 0.0f;
     unsigned int statsFrameCount = 0;
+    float simulationTime=0;
+    std::string lastScriptError;
 
     while (!applicationWindow.shouldClose() && project.requestedOpen.empty()) {
         const float currentFrameTime = static_cast<float>(glfwGetTime());
         const float deltaTime = currentFrameTime - lastFrameTime;
         lastFrameTime = currentFrameTime;
 
+        // Apply toolbar commands before taking references to the active scene.
+        const auto command=play.command; play.command=PlayCommand::None;
+        if(command==PlayCommand::Start) {
+            if(play.start(editingScene,camera)) {
+                renderer.resetSimulation(); simulationTime=0; uiInteractive=true;
+                glfwSetInputMode(window,GLFW_CURSOR,GLFW_CURSOR_NORMAL);
+                debugPanel.runtimeMessage("Play: runtime copy started. Click Scene View for WASD.");
+            } else debugPanel.runtimeMessage(play.error());
+        }
+        if(command==PlayCommand::Pause) play.pause();
+        if(command==PlayCommand::Resume) play.resume();
+        if(command==PlayCommand::Stop) {
+            play.stop(camera); renderer.resetSimulation(); simulationTime=0;
+            debugPanel.runtimeMessage("Stopped. Editing scene and camera restored.");
+        }
+        Scene& scene=play.activeScene(editingScene);
+
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            if(play.active()) play.pause();
+            else if(!ImGui::GetIO().WantTextInput) glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
 
         const bool f4IsPressed =
             glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS;
-        if (f4IsPressed && !f4WasPressed) {
+        if (f4IsPressed && !f4WasPressed && !play.active()) {
             uiInteractive = !uiInteractive;
             glfwSetInputMode(
                 window,
@@ -249,7 +272,7 @@ int EngineApplication::run(Project& project) {
         }
         f3WasPressed = f3IsPressed;
 
-        const bool materialShortcuts = !ImGui::GetIO().WantCaptureKeyboard;
+        const bool materialShortcuts = !play.active() && !ImGui::GetIO().WantCaptureKeyboard;
         if (materialShortcuts && glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
             exposure += deltaTime;
         }
@@ -285,14 +308,31 @@ int EngineApplication::run(Project& project) {
         }
 
         const EditorViewportSize viewport = debugPanel.beginFrame(renderer, scene, uiInteractive);
-        if ((!uiInteractive || debugPanel.sceneNavigating())
+        if (!play.active() && (!uiInteractive || debugPanel.sceneNavigating())
             && glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE) {
             camera.processKeyboard(window, deltaTime);
             camera.processMouse(window);
         } else {
             camera.resetMouseSample();
         }
-        scene.update(currentFrameTime);
+        GameInput input;
+        if(play.active() && debugPanel.gameInputFocused() && glfwGetWindowAttrib(window,GLFW_FOCUSED)) {
+            // ImGui's event queue retains quick taps even if GLFW has already
+            // received both press and release in a single pollEvents call.
+            const auto down=[](ImGuiKey key) {
+                return ImGui::IsKeyDown(key) || ImGui::IsKeyPressed(key,false);
+            };
+            input.movement.x=(down(ImGuiKey_D)?1.f:0.f)-(down(ImGuiKey_A)?1.f:0.f);
+            input.movement.y=(down(ImGuiKey_W)?1.f:0.f)-(down(ImGuiKey_S)?1.f:0.f);
+            if(ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyAlt) input={};
+        }
+        play.update(deltaTime,input,camera);
+        if(play.active()) simulationTime=play.time();
+        else simulationTime+=std::clamp(deltaTime,0.f,.05f);
+        if(!play.error().empty() && play.error()!=lastScriptError) {
+            debugPanel.runtimeMessage(play.error()); lastScriptError=play.error();
+        }
+        scene.update(simulationTime);
 
         renderer.render(
             scene,
@@ -313,7 +353,7 @@ int EngineApplication::run(Project& project) {
             exposure,
             modelMetallic,
             modelRoughness,
-            currentFrameTime
+            simulationTime, play.state()!=PlayState::Paused
         );
         ++statsFrameCount;
 
@@ -358,6 +398,7 @@ int EngineApplication::run(Project& project) {
         applicationWindow.pollEvents();
     }
 
+    play.stop(camera);
     renderer.destroy();
     modelMesh.destroy();
     floorMesh.destroy();

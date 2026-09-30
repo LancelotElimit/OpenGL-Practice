@@ -8,6 +8,15 @@
 
 ## 对象编辑与独立项目
 
+### 运行与角色脚本
+
+顶部 `Play / Pause / Resume / Stop` 提供独立运行场景。Sandbox 的 `Player`
+已绑定项目 C++ 脚本：Play 后点击 Scene View，再用 WASD 移动；Esc 暂停，Stop
+恢复编辑场景和相机。Inspector 可选择 Behaviour、主角、移动速度和相机偏移。
+暂停同时冻结动画、粒子和流体，但继续渲染与响应 UI。
+脚本修改后需要重新编译，尚无角色碰撞和热重载。
+详见：[运行模式与 C++ 脚本](docs/PLAY_MODE.md)。
+
 引擎现在单独编译为 `LancelotEngine` 库，编辑器入口为 `src/EditorMain.cpp`。
 示例场景与资源引用位于 `projects/Sandbox`，不再由主循环硬编码创建。
 通过 `File → Open Project...` 输入 `.lancelot` 文件路径打开项目；`Ctrl+S`

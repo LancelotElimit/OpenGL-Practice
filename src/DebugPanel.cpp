@@ -1,7 +1,9 @@
 #include "DebugPanel.h"
+#include "PlaySession.h"
 
 #include "AssetPaths.h"
 #include "Renderer.h"
+#include <GLFW/glfw3.h>
 #include "Camera.h"
 #include "Scene.h"
 #include "Project.h"
@@ -90,7 +92,7 @@ void particleControls(Renderer& renderer, SceneObject& object) {
 }
 } // namespace
 
-DebugPanel::DebugPanel(GLFWwindow* window, Project& project) : window_(window), project_(project) {
+DebugPanel::DebugPanel(GLFWwindow* window, Project& project, PlaySession& play) : window_(window), project_(project), play_(play) {
     std::strncpy(gltfPath_.data(), "assets/BoxTextured.glb", gltfPath_.size() - 1);
     std::filesystem::path settingsDirectory = std::filesystem::current_path();
 #ifdef _WIN32
@@ -176,8 +178,10 @@ EditorViewportSize DebugPanel::beginFrame(Renderer& renderer, Scene& scene, bool
         ImGui::TextUnformatted("LANCELOT  /  EDITOR");
         ImGui::Separator();
         if (ImGui::BeginMenu("File")) {
+            ImGui::BeginDisabled(play_.active());
             if (ImGui::MenuItem("Open Project...")) openProjectPopup_=true;
             if (ImGui::MenuItem("Save scene","Ctrl+S")) log(project_.saveScene(scene)?"Scene saved.":project_.error());
+            ImGui::EndDisabled();
             ImGui::Separator(); ImGui::TextUnformatted(project_.name().c_str());
             ImGui::EndMenu();
         }
@@ -193,8 +197,16 @@ EditorViewportSize DebugPanel::beginFrame(Renderer& renderer, Scene& scene, bool
             if (ImGui::MenuItem("Reset workspace layout")) resetLayout_ = true;
             ImGui::EndMenu();
         }
-        ImGui::SameLine(ImGui::GetWindowWidth() - 285.0f);
-        ImGui::TextDisabled("F4: editor / fly camera");
+        ImGui::Separator();
+        if(!play_.active()) {
+            if(ImGui::Button("Play")) play_.command=PlayCommand::Start;
+            ImGui::SameLine(); ImGui::TextDisabled("Editing");
+        } else {
+            const bool paused=play_.state()==PlayState::Paused;
+            if(ImGui::Button(paused?"Resume":"Pause")) play_.command=paused?PlayCommand::Resume:PlayCommand::Pause;
+            ImGui::SameLine(); if(ImGui::Button("Stop")) play_.command=PlayCommand::Stop;
+            ImGui::SameLine(); ImGui::TextColored(ImVec4(1,.75f,.2f,1),"%s  %.1fs",paused?"Paused":"Playing",play_.time());
+        }
         ImGui::EndMainMenuBar();
     }
     if(openProjectPopup_) { ImGui::OpenPopup("Open Project"); openProjectPopup_=false; }
@@ -240,14 +252,16 @@ EditorViewportSize DebugPanel::beginFrame(Renderer& renderer, Scene& scene, bool
     if (ImGui::Begin("Scene View", nullptr,
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         const char* modes[] = {"Move [Q]", "Rotate [W]", "Scale [E]"};
+        ImGui::BeginDisabled(play_.active());
         for (int i = 0; i < 3; ++i) {
             if (i) ImGui::SameLine();
             if (ImGui::Selectable(modes[i], gizmoOperation_ == i, 0,
                 ImVec2(ImGui::CalcTextSize(modes[i]).x+16, 0)))
                 gizmoOperation_ = i;
         }
+        ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::TextDisabled(interactive ? "RMB + WASD"
+        ImGui::TextDisabled(play_.active()?(gameInputFocused_?"WASD active | Esc: pause":"Click view for WASD"):interactive ? "RMB + WASD"
                                         : "F4: return to editor");
         ImGui::Separator();
         const ImVec2 available = ImGui::GetContentRegionAvail();
@@ -265,6 +279,9 @@ EditorViewportSize DebugPanel::beginFrame(Renderer& renderer, Scene& scene, bool
         sceneRight_ = max.x; sceneBottom_ = max.y;
         sceneNavigating_ = interactive && ImGui::IsItemHovered()
             && ImGui::IsMouseDown(ImGuiMouseButton_Right);
+        gameInputFocused_=play_.state()==PlayState::Playing && interactive
+            && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            && !ImGui::GetIO().WantTextInput;
         const ImVec2 scale = ImGui::GetIO().DisplayFramebufferScale;
         result.width = std::max(64, static_cast<int>(std::round(size.x * scale.x)));
         result.height = std::max(64, static_cast<int>(std::round(size.y * scale.y)));
@@ -362,6 +379,28 @@ void DebugPanel::drawInspector(Renderer& renderer, Camera& camera, Scene& scene,
             ImGui::DragFloat("Scale step", &snapScale_, .01f, .001f, 10);
             if (ImGui::Button("Focus selected [F]"))
                 camera.lookAt(object->position + glm::vec3(0, 1.5f, 4), object->position);
+            ImGui::SeparatorText("C++ Script");
+            if(ImGui::BeginCombo("Behaviour",object->script.type.empty()?"None":object->script.type.c_str())) {
+                if(ImGui::Selectable("None",object->script.type.empty())) {
+                    object->script.type.clear(); object->script.mainCharacter=false;
+                }
+                for(const auto& [name,factory]:play_.registry().entries())
+                    if(ImGui::Selectable(name.c_str(),object->script.type==name)) object->script.type=name;
+                ImGui::EndCombo();
+            }
+            if(!object->script.type.empty()) {
+                ImGui::Checkbox("Script enabled",&object->script.enabled);
+                bool player=object->script.mainCharacter;
+                if(ImGui::Checkbox("Main character",&player)) {
+                    for(const auto& other:scene.objects()) scene.find(other.id)->script.mainCharacter=false;
+                    object->script.mainCharacter=player;
+                }
+                slider("Move speed",object->script.moveSpeed,0,20);
+                ImGui::Checkbox("Face movement",&object->script.faceMovement);
+                ImGui::Checkbox("Follow camera",&object->script.followCamera);
+                ImGui::DragFloat3("Camera offset",&object->script.cameraOffset.x,.05f);
+            }
+            ImGui::TextWrapped(play_.active()?"Runtime is read-only. Stop to edit; runtime changes are discarded.":"Scripts are compiled C++. Assign one main character, then Play and click Scene View.");
             if (object->kind == SceneObjectKind::Obj) {
                 slider("Metallic (shared material)", metallic, 0, 1);
                 slider("Roughness (shared material)", roughness, .05f, 1);
@@ -485,6 +524,7 @@ void DebugPanel::drawInspector(Renderer& renderer, Camera& camera, Scene& scene,
 }
 
 void DebugPanel::objectActions(Scene& scene) {
+    if(play_.active()) return;
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
         || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive()
         || ImGuizmo::IsUsing() || sceneNavigating_) return;
@@ -828,7 +868,7 @@ void DebugPanel::draw(Renderer& renderer, Camera& camera, Scene& scene,
                       float& metallic, float& roughness, float& exposure,
                       bool& bloomEnabled) {
     if (!valid_) return;
-    if(ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_S,false))
+    if(!play_.active() && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_S,false))
         log(project_.saveScene(scene)?"Scene saved.":project_.error());
     frameTimes_[historyOffset_] = deltaTime * 1000.0f;
     historyOffset_ = (historyOffset_ + 1) % HistorySize;
@@ -841,17 +881,21 @@ void DebugPanel::draw(Renderer& renderer, Camera& camera, Scene& scene,
                 ImVec2(sceneLeft_, sceneTop_), ImVec2(sceneRight_, sceneBottom_),
                 ImVec2(0, 1), ImVec2(1, 0));
         }
-        drawGizmo(renderer, camera, scene, interactive);
+        if(!play_.active()) drawGizmo(renderer, camera, scene, interactive);
     }
     ImGui::End();
 
+    ImGui::BeginDisabled(play_.active());
     drawHierarchy(renderer, scene);
     drawInspector(renderer, camera, scene, metallic, roughness, exposure, bloomEnabled);
     drawAssets(renderer, scene);
+    ImGui::EndDisabled();
     drawConsole(renderer);
     drawProfiler(stats, fps, deltaTime, cachedTextureCount);
-    drawSmoke(renderer, scene, interactive);
+    ImGui::BeginDisabled(play_.active());
+    drawSmoke(renderer, scene, interactive && !play_.active());
     drawWater(renderer, scene, camera, stats);
+    ImGui::EndDisabled();
 
     ImGui::Render();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

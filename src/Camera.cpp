@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include <GLFW/glfw3.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
@@ -55,10 +56,11 @@ void Camera::resetMouseSample() {
 }
 
 void Camera::lookAt(const glm::vec3& position, const glm::vec3& target) {
+    if(glm::length(target-position)<1e-5f) return;
     position_ = position;
     const glm::vec3 direction = glm::normalize(target - position);
     yaw_ = glm::degrees(std::atan2(direction.z, direction.x));
-    pitch_ = glm::degrees(std::asin(glm::clamp(direction.y, -1.0f, 1.0f)));
+    pitch_ = glm::clamp(glm::degrees(std::asin(glm::clamp(direction.y, -1.0f, 1.0f))),-89.f,89.f);
     updateFrontFromAngles();
     resetMouseSample();
 }

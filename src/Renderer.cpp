@@ -246,7 +246,8 @@ void Renderer::render(
     float exposure,
     float modelMetallic,
     float modelRoughness,
-    float timeSeconds
+    float timeSeconds,
+    bool updateSimulation
 ) {
     stats_ = {};
     const auto& modelTransforms = scene.modelTransforms();
@@ -279,17 +280,19 @@ void Renderer::render(
     for (const auto& object : scene.objects()) {
         if (!object.visible) continue;
         if(object.kind==SceneObjectKind::Water) {
-            auto& runtime=fluidSystem(object.id); runtime.update(particleDt,object.waterSettings());
+            auto& runtime=fluidSystem(object.id); if(updateSimulation) runtime.update(particleDt,object.waterSettings());
             stats_.fluidParticles+=runtime.particleCount(); stats_.fluidTriangles+=runtime.triangleCount();
             stats_.fluidUpdateMs+=runtime.updateMilliseconds();
         } else if(object.kind==SceneObjectKind::Smoke) {
-            auto& runtime=smoke2D(object.id); runtime.update(particleDt,object.smokeSettings());
-            stats_.smokeUpdateMs+=runtime.updateMilliseconds(); stats_.smokePasses+=runtime.passCount();
+            auto& runtime=smoke2D(object.id); if(updateSimulation) runtime.update(particleDt,object.smokeSettings());
+            if(updateSimulation) {
+                stats_.smokeUpdateMs+=runtime.updateMilliseconds(); stats_.smokePasses+=runtime.passCount();
+            }
         } else if (object.kind == SceneObjectKind::CpuEmitter) {
             auto& runtime = cpuEmitters_[object.id];
             if (!runtime) runtime = std::make_unique<ParticleSystem>(particleShaderDirectory_);
             if (runtime->valid()) {
-                runtime->update(particleDt, object.particleSettings());
+                if(updateSimulation) runtime->update(particleDt, object.particleSettings());
                 stats_.liveParticles += runtime->count();
             }
         } else if (object.kind == SceneObjectKind::GpuEmitter && object.gpuSettings().visible) {
@@ -299,7 +302,7 @@ void Renderer::render(
                 runtime->reset(object.gpuSettings());
             }
             if (runtime->valid()) {
-                runtime->update(particleDt, object.gpuSettings());
+                if(updateSimulation) runtime->update(particleDt, object.gpuSettings());
                 stats_.gpuParticleSlots += runtime->slotCount(object.gpuSettings());
             }
         }
@@ -329,7 +332,7 @@ void Renderer::render(
     }
     stats_.visibleInstances = visibleModelTransforms.size();
 
-    animatedModel_.update(timeSeconds);
+    if(updateSimulation) animatedModel_.update(timeSeconds);
     const glm::mat4 lightProjection = glm::perspective(
         glm::radians(45.0f),
         1.0f,
@@ -757,6 +760,11 @@ void Renderer::render(
     glEnable(GL_DEPTH_TEST);
 }
 
+void Renderer::resetSimulation() {
+    cpuEmitters_.clear(); gpuEmitters_.clear(); waterObjects_.clear(); smokeObjects_.clear();
+    lastParticleTime_=0;
+    animatedModel_.resetPlayback();
+}
 void Renderer::destroy() {
     valid_ = false;
     spotlightShadowMap_.destroy();

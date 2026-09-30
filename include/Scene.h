@@ -14,6 +14,12 @@
 enum class SceneObjectKind { Obj, Gltf, Skinned, CpuEmitter, GpuEmitter, Water, Smoke, Platform, PointLight, Camera, Environment, SpotLight, Count };
 struct LightSettings { glm::vec3 color{1}; float intensity = 3; };
 struct EnvironmentSettings { bool sky = true; float intensity = 1; };
+struct ScriptBinding {
+    std::string type;
+    bool enabled=true, mainCharacter=false, followCamera=true, faceMovement=false;
+    float moveSpeed=2.5f;
+    glm::vec3 cameraOffset{0,2,5};
+};
 struct SceneObject {
     virtual ~SceneObject() = default;
     virtual std::unique_ptr<SceneObject> clone() const = 0;
@@ -21,6 +27,7 @@ struct SceneObject {
     std::string name;
     SceneObjectKind kind = SceneObjectKind::Obj;
     bool visible = true;
+    ScriptBinding script;
     glm::vec3 position{0}, rotation{0}, scale{1};
     glm::mat4 importTransform{1};
     glm::vec3 boundsCenter{0};
