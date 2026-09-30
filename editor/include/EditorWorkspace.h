@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -71,8 +72,12 @@ class EditorWorkspace {
     Project &project_;
     PlaySession &play_;
     bool gameInputFocused_ = false;
-    std::array<char, 1024> projectPath_{};
     bool openProjectPopup_ = false;
+    bool newProjectPopup_ = false, switchProjectPopup_ = false;
+    std::array<char, 256> newProjectName_{"MyProject"};
+    std::filesystem::path newProjectParent_, pendingProject_;
+    std::string projectDialogError_;
+    void requestProjectSwitch(const std::filesystem::path &path, Scene &scene);
     void log(const std::string &message);
     bool valid_ = false;
     std::string iniPath_;

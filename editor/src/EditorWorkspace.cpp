@@ -7,6 +7,7 @@
 #include "AssetPaths.h"
 #include "Camera.h"
 #include "Project.h"
+#include "ProjectDialog.h"
 #include "Renderer.h"
 #include "Scene.h"
 #include <GLFW/glfw3.h>
@@ -125,6 +126,21 @@ void EditorWorkspace::saveScene(Scene &scene) {
     } else
         log(project_.error());
 }
+void EditorWorkspace::requestProjectSwitch(const std::filesystem::path &path, Scene &scene) {
+    Project candidate;
+    Scene validation;
+    if (!candidate.open(path) || !candidate.loadScene(validation)) {
+        projectDialogError_ = candidate.error();
+        log(projectDialogError_);
+        return;
+    }
+    if (savedScene_ == Project::serializeScene(scene))
+        project_.requestedOpen = candidate.descriptor();
+    else {
+        pendingProject_ = candidate.descriptor();
+        switchProjectPopup_ = true;
+    }
+}
 void EditorWorkspace::historyAction(Scene &scene, bool redo) {
     if (play_.active() || ImGui::IsAnyItemActive() || ImGuizmo::IsUsing())
         return;
@@ -168,6 +184,11 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
         ImGui::Separator();
         if (ImGui::BeginMenu(EditorLocale::label("File"))) {
             ImGui::BeginDisabled(play_.active());
+            if (ImGui::MenuItem(EditorLocale::label("New Project..."))) {
+                newProjectPopup_ = true;
+                newProjectParent_ = project_.descriptor().parent_path().parent_path();
+                projectDialogError_.clear();
+            }
             if (ImGui::MenuItem(EditorLocale::label("Open Project...")))
                 openProjectPopup_ = true;
             if (ImGui::MenuItem(EditorLocale::label("Save scene"), "Ctrl+S"))
@@ -238,27 +259,84 @@ EditorViewportSize EditorWorkspace::beginFrame(Renderer &renderer, Scene &scene,
         ImGui::EndMainMenuBar();
     }
     if (openProjectPopup_) {
-        ImGui::OpenPopup(EditorLocale::label("Open Project"));
         openProjectPopup_ = false;
+        projectDialogError_.clear();
+        const auto chosen = chooseProjectPath(window_, project_.descriptor().parent_path(), false,
+                                              EditorLocale::language() == EditorLanguage::Chinese);
+        if (!chosen.error.empty())
+            log(chosen.error);
+        if (!chosen.path.empty())
+            requestProjectSwitch(chosen.path, scene);
     }
-    if (ImGui::BeginPopupModal(EditorLocale::label("Open Project"), nullptr,
+    if (newProjectPopup_) {
+        ImGui::OpenPopup(EditorLocale::label("New Project"));
+        newProjectPopup_ = false;
+    }
+    if (ImGui::BeginPopupModal(EditorLocale::label("New Project"), nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(EditorLocale::text("Project descriptor (.lancelot)"));
         ImGui::SetNextItemWidth(580);
-        ImGui::InputText("##project", projectPath_.data(), projectPath_.size());
-        if (ImGui::Button(EditorLocale::label("Open"))) {
+        ImGui::InputText(EditorLocale::label("Project name"), newProjectName_.data(),
+                         newProjectName_.size());
+        ImGui::TextUnformatted(EditorLocale::text("Parent directory"));
+        const auto parentUtf8 = newProjectParent_.u8string();
+        ImGui::TextWrapped("%s", reinterpret_cast<const char *>(parentUtf8.c_str()));
+        if (ImGui::Button(EditorLocale::label("Choose directory..."))) {
+            const auto chosen =
+                chooseProjectPath(window_, newProjectParent_, true,
+                                  EditorLocale::language() == EditorLanguage::Chinese);
+            if (!chosen.path.empty())
+                newProjectParent_ = chosen.path;
+            if (!chosen.error.empty())
+                projectDialogError_ = chosen.error;
+        }
+        ImGui::TextWrapped(
+            EditorLocale::text("A new folder named after the project will be created here."));
+        const auto destination =
+            (newProjectParent_ / std::filesystem::u8path(newProjectName_.data())).u8string();
+        ImGui::TextWrapped("%s", reinterpret_cast<const char *>(destination.c_str()));
+        if (!projectDialogError_.empty())
+            ImGui::TextWrapped("%s", EditorLocale::text(projectDialogError_.c_str()));
+        ImGui::Separator();
+        if (ImGui::Button(EditorLocale::label("Create and open"))) {
             Project candidate;
-            Scene validation;
-            if (candidate.open(projectPath_.data()) && candidate.loadScene(validation)) {
-                project_.requestedOpen = candidate.descriptor();
+            if (candidate.create(newProjectParent_, newProjectName_.data())) {
+                requestProjectSwitch(candidate.descriptor(), scene);
                 ImGui::CloseCurrentPopup();
-            } else
+            } else {
+                projectDialogError_ = candidate.error();
                 log(candidate.error());
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button(EditorLocale::label("Cancel")))
             ImGui::CloseCurrentPopup();
-        ImGui::TextWrapped(EditorLocale::text("Save your scene before switching projects."));
+        ImGui::EndPopup();
+    }
+    if (switchProjectPopup_) {
+        ImGui::OpenPopup(EditorLocale::label("Unsaved scene"));
+        switchProjectPopup_ = false;
+    }
+    if (ImGui::BeginPopupModal(EditorLocale::label("Unsaved scene"), nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(
+            EditorLocale::text("Save the current scene before switching projects?"));
+        if (ImGui::Button(EditorLocale::label("Save and continue"))) {
+            saveScene(scene);
+            if (savedScene_ == Project::serializeScene(scene)) {
+                project_.requestedOpen = pendingProject_;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(EditorLocale::label("Discard and continue"))) {
+            project_.requestedOpen = pendingProject_;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(EditorLocale::label("Cancel"))) {
+            pendingProject_.clear();
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
 
@@ -353,7 +431,7 @@ void EditorWorkspace::draw(Renderer &renderer, Camera &camera, Scene &scene,
         return;
     if (!play_.active() && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput &&
         ImGui::IsKeyPressed(ImGuiKey_S, false))
-        log(project_.saveScene(scene) ? "Scene saved." : project_.error());
+        saveScene(scene);
     profiler_.frameTimes[profiler_.offset] = deltaTime * 1000.0f;
     profiler_.offset = (profiler_.offset + 1) % ProfilerPanel::HistorySize;
 

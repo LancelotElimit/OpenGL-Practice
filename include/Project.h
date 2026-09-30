@@ -6,6 +6,8 @@ class Scene;
 class Project {
   public:
     bool open(const std::filesystem::path &descriptor);
+    // Creates a new name/ folder below an existing parent; never overwrites a project.
+    bool create(const std::filesystem::path &parent, const std::string &name);
     bool loadScene(Scene &scene);
     bool saveScene(const Scene &scene);
     static std::string serializeScene(const Scene &scene);

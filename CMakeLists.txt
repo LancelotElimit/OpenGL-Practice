@@ -275,6 +275,7 @@ if(LANCELOT_BUILD_EDITOR)
         editor/src/ResourceBrowserPanel.cpp
         editor/src/AssetPreviewPanel.cpp
         editor/src/MediaPreview.cpp
+        editor/src/ProjectDialog.cpp
         editor/src/OutputPanel.cpp
         editor/src/ProfilerPanel.cpp
         editor/src/SmokePanel.cpp
@@ -285,7 +286,7 @@ if(LANCELOT_BUILD_EDITOR)
     target_include_directories(LancelotEditor PUBLIC "${CMAKE_SOURCE_DIR}/editor/include")
     target_link_libraries(LancelotEditor PUBLIC LancelotEngine PRIVATE imgui imguizmo imm32)
     if(WIN32)
-        target_link_libraries(LancelotEditor PRIVATE mfplay mfplat mfuuid propsys ole32)
+        target_link_libraries(LancelotEditor PRIVATE mfplay mfplat mfuuid propsys ole32 shell32 uuid)
     endif()
     add_executable(OpenGLPractice editor/src/EditorMain.cpp)
     target_link_libraries(OpenGLPractice PRIVATE LancelotEditor LancelotProjectScripts)
@@ -403,6 +404,9 @@ if(BUILD_TESTING)
     target_link_libraries(AssetsRuntimeTests PRIVATE LancelotEngine)
     add_test(NAME AssetsRuntimeTests COMMAND AssetsRuntimeTests "${CMAKE_SOURCE_DIR}")
     add_executable(ProjectTests tests/ProjectTests.cpp)
+    add_executable(ProjectCreationTests tests/ProjectCreationTests.cpp)
+    target_link_libraries(ProjectCreationTests PRIVATE LancelotEngine)
+    add_test(NAME ProjectCreationTests COMMAND ProjectCreationTests)
     target_link_libraries(ProjectTests PRIVATE LancelotEngine)
     add_test(NAME ProjectTests COMMAND ProjectTests "${CMAKE_SOURCE_DIR}/projects/Sandbox/Sandbox.lancelot")
     add_executable(EngineBoundaryTests tests/EngineBoundaryTests.cpp)

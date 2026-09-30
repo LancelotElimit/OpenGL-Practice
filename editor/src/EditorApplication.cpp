@@ -73,7 +73,7 @@ int EditorApplication::run(Project &project, const ScriptRegistry &scripts) {
     EngineApplication engine;
     if (!engine.initialize(project))
         return 1;
-    // Destruction order: UI and play session disappear before the engine/context.
+    // Project switching rebuilds this workspace. Destroy UI/play before the old context.
     PlaySession play(scripts);
     EditorWorkspace ui(engine.window().get(), project, play);
     if (!ui.valid())

@@ -1,6 +1,8 @@
 #include "Project.h"
 #include "Scene.h"
 #include <cmath>
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <json.hpp>
 #include <unordered_set>
@@ -19,6 +21,10 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Fluid2DSettings, showWindow, enabled, paused,
                                    centerObstacle, sourceStrength, force, dissipation, brushRadius,
                                    pressureIterations, viewMode, opacity)
 namespace {
+std::string utf8(const std::filesystem::path &path) {
+    const auto value = path.generic_u8string();
+    return std::string(value.begin(), value.end());
+}
 void atomicWrite(const std::filesystem::path &target, const std::string &text) {
     const auto staged = std::filesystem::path(target.wstring() + L".tmp");
     {
@@ -29,11 +35,11 @@ void atomicWrite(const std::filesystem::path &target, const std::string &text) {
             throw std::runtime_error("Cannot write staged file");
     }
     if (std::filesystem::exists(target))
-        std::filesystem::copy_file(target, target.string() + ".bak",
+        std::filesystem::copy_file(target, std::filesystem::path(target.wstring() + L".bak"),
                                    std::filesystem::copy_options::overwrite_existing);
     if (!MoveFileExW(staged.c_str(), target.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        throw std::runtime_error("Cannot replace file: " + target.string());
+        throw std::runtime_error("Cannot replace file: " + utf8(target));
 }
 template <class T> T settingsFrom(const json &value) {
     json merged = T{};
@@ -52,20 +58,80 @@ json vector(const glm::vec3 &value) { return json::array({value.x, value.y, valu
 json read(const std::filesystem::path &file) {
     std::ifstream input(file);
     if (!input)
-        throw std::runtime_error("Cannot open: " + file.string());
+        throw std::runtime_error("Cannot open: " + utf8(file));
     return json::parse(input);
 }
 } // namespace
+bool Project::create(const std::filesystem::path &parent, const std::string &name) {
+    std::filesystem::path directory;
+    bool owned = false;
+    try {
+        if (name.empty() || name.size() > 180 || name.back() == '.' || name.back() == ' ' ||
+            std::any_of(name.begin(), name.end(), [](unsigned char c) {
+                return c < 32 || std::string("<>:\"/\\|?*").find(c) != std::string::npos;
+            }))
+            throw std::runtime_error("Invalid project name.");
+        auto device = name.substr(0, name.find('.'));
+        std::transform(device.begin(), device.end(), device.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (device == "CON" || device == "PRN" || device == "AUX" || device == "NUL" ||
+            (device.size() == 4 && (device.starts_with("COM") || device.starts_with("LPT")) &&
+             device[3] >= '1' && device[3] <= '9'))
+            throw std::runtime_error("Invalid project name.");
+        if (parent.empty() || !std::filesystem::is_directory(parent))
+            throw std::runtime_error("Choose an existing parent directory.");
+        directory = std::filesystem::absolute(parent) / std::filesystem::u8path(name);
+        if (!std::filesystem::create_directory(directory))
+            throw std::runtime_error("Project folder already exists. Choose another name.");
+        owned = true;
+        std::filesystem::create_directory(directory / "assets");
+        Scene scene;
+        scene.clear();
+        scene.find(scene.add(SceneObjectKind::Platform))->position = {0, -.5f, 0};
+        scene.find(scene.add(SceneObjectKind::PointLight))->position = {2, 3, 2};
+        auto &camera = *scene.find(scene.add(SceneObjectKind::Camera));
+        camera.position = {0, 1.5f, 4};
+        camera.rotation = {-20, 0, 0};
+        scene.add(SceneObjectKind::Environment);
+        const auto descriptor = directory / std::filesystem::u8path(name + ".lancelot");
+        atomicWrite(directory / "scene.json", serializeScene(scene));
+        atomicWrite(descriptor, json{{"version", 1},
+                                     {"name", name},
+                                     {"assetRoot", "assets"},
+                                     {"scene", "scene.json"},
+                                     {"assets", json::object()}}
+                                    .dump(2));
+        if (!open(descriptor))
+            throw std::runtime_error(error_);
+        return true;
+    } catch (const std::exception &failure) {
+        error_ = failure.what();
+        // Remove only files this invocation owns; never recursively remove user content.
+        if (owned) {
+            std::error_code ignored;
+            const auto descriptor = directory / std::filesystem::u8path(name + ".lancelot");
+            for (const auto &file : {descriptor, directory / "scene.json"}) {
+                std::filesystem::remove(file, ignored);
+                std::filesystem::remove(std::filesystem::path(file.wstring() + L".tmp"), ignored);
+            }
+            std::filesystem::remove(directory / "assets", ignored);
+            std::filesystem::remove(directory, ignored);
+        }
+        return false;
+    }
+}
 bool Project::open(const std::filesystem::path &descriptor) {
     try {
         const auto absolute = std::filesystem::absolute(descriptor);
         const auto data = read(absolute);
         if (data.value("version", 0) != 1)
             throw std::runtime_error("Unsupported project version");
-        auto root = (absolute.parent_path() / data.value("assetRoot", std::string("assets")))
+        auto root = (absolute.parent_path() /
+                     std::filesystem::u8path(data.value("assetRoot", std::string("assets"))))
                         .lexically_normal();
         auto scene =
-            (absolute.parent_path() / data.at("scene").get<std::string>()).lexically_normal();
+            (absolute.parent_path() / std::filesystem::u8path(data.at("scene").get<std::string>()))
+                .lexically_normal();
         const auto sceneData = read(scene);
         if (!sceneData.at("objects").is_array())
             throw std::runtime_error("Scene objects must be an array");
@@ -79,7 +145,7 @@ bool Project::open(const std::filesystem::path &descriptor) {
         assetRoot_ = root;
         scenePath_ = scene;
         assets_ = std::move(assets);
-        name_ = data.value("name", absolute.stem().string());
+        name_ = data.value("name", utf8(absolute.stem()));
         error_.clear();
         excludedObject_ = data.value("excludeObject", std::string{});
         modelRadius_ = radius;
@@ -93,13 +159,13 @@ std::filesystem::path Project::asset(const std::string &key) const {
     const auto entry = assets_.find(key);
     if (entry == assets_.end() || entry->second.empty())
         return {};
-    return (assetRoot_ / entry->second).lexically_normal();
+    return (assetRoot_ / std::filesystem::u8path(entry->second)).lexically_normal();
 }
 void Project::setAsset(const std::string &key, const std::filesystem::path &path) {
     // Keep references relative where possible; never move the user's source file.
-    assets_[key] = std::filesystem::absolute(path).lexically_relative(assetRoot_).generic_string();
+    assets_[key] = utf8(std::filesystem::absolute(path).lexically_relative(assetRoot_));
     if (assets_[key].empty())
-        assets_[key] = std::filesystem::absolute(path).generic_string();
+        assets_[key] = utf8(std::filesystem::absolute(path));
 }
 bool Project::loadScene(Scene &scene) {
     try {
