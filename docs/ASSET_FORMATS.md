@@ -62,8 +62,9 @@ MediaPreviewTests 生成静音 WAV 和 H.264 MP4，检查音视频加载、时�
 音频跳转、停止和释放。MP4 使用 Windows 自带编码器生成，无需外部测试媒体。
 原有场景、运行模式、项目和渲染测试继续参与回归验证。
 
-2026-09-30：独立 Debug 构建成功，完整 10 项测试全部通过；编辑器窗口中确认中文分类、
-多格式导入入口和图片预览正常显示。
+2026-09-30：多格式功能接入时完整 10 项测试通过；加入 ProjectCreationTests 后，
+最近完整 Debug 验证为 11 项全部通过。编辑器窗口中已确认中文分类、
+多格式导入入口和图片预览正常显示。不能由格式识别或个别测试样本推断所有资产兼容。
 
 参考：[Assimp 官方格式列表](https://github.com/assimp/assimp/blob/v5.4.3/doc/Fileformats.md)、
 [Microsoft MFPlay 文档](https://learn.microsoft.com/en-us/windows/win32/medfound/getting-started-with-mfplay)。

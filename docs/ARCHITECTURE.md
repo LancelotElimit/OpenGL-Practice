@@ -13,11 +13,11 @@ LancelotPlayer ──→ LancelotEngine + LancelotProjectScripts（无编辑器�
 OpenGLPractice（编辑器启动程序）
 ├─ LancelotEditor ──→ LancelotEngine
 │  ├─ ImGui / ImGuizmo
-│  └─ Windows IME 适配
+│  └─ Windows IME、系统项目选择窗口与媒体预览
 └─ LancelotProjectScripts ──→ LancelotEngine
    └─ projects/Sandbox/Scripts
 
-LancelotEngine ──→ GLFW / GLAD / GLM / OpenGL
+LancelotEngine ──→ GLFW / GLAD / GLM / OpenGL / 资产加载器（含 Assimp）
                  不依赖 ImGui、ImGuizmo 或编辑器头文件
 ```
 
@@ -82,11 +82,13 @@ EditorWorkspace
 ├─ HierarchyPanel：对象目录
 ├─ InspectorPanel：对象属性与脚本参数
 ├─ ResourceBrowserPanel：目录、筛选、选择与导入入口
+├─ AssetPreviewPanel / MediaPreview：图片和系统音视频预览
 ├─ OutputPanel：运行日志
 ├─ ProfilerPanel：统计与帧时间历史
 ├─ SmokePanel：选定烟雾对象的实验交互
 ├─ WaterPanel：选定水对象的实验交互
-└─ SelectionController：拾取、快捷键与变换工具
+├─ SelectionController：拾取、快捷键与变换工具
+└─ ProjectDialog：Windows 项目文件 / 新建父目录选择
 ```
 
 面板各自保存窗口开关、浏览器目录/筛选、性能历史或模拟目标 ID。
@@ -107,6 +109,8 @@ ctest --test-dir out/build/engine-only --output-on-failure
 纯引擎配置不会创建或下载 ImGui/ImGuizmo 目标，仍构建项目脚本库、引擎测试和 LancelotPlayer；尚无安装包或自动打包流水线。
 
 本轮验证：编辑器完整构建与 7 项测试通过；纯引擎/Player 独立构建与 4 项测试通过。
+以上为该架构拆分阶段的历史验证。后续多格式、媒体与项目创建功能加入后，
+当前编辑器配置定义 11 项测试，纯引擎配置定义 6 项；最近完整 Debug 验证为 11 项通过。
 其中 AssetsRuntimeTests 使用隐藏的真实 OpenGL Context，验证不同 OBJ/glTF 同时导入、
 资源复用、独立绑定、实际帧缓冲内容、暂停与重复绘制不推进模拟，以及 Player 呈现无 GL 错误。
 桌面冒烟检查通过 Play/WASD/Pause/Step/Stop、位置修改的撤销/重做及拖放改父节点；测试编辑已撤销，未保存场景。资源导入/绑定的鼠标流程仍建议按 [编辑工作流](EDITOR_WORKFLOW.md) 补充检查。
@@ -263,12 +267,14 @@ Shader 只需要知道 sampler 对应的纹理单元，不需要知道图片是�
 
 ### Scene
 
-`Scene` 保存每帧变化的场景状态。它负责计算父子节点的世界矩阵以及两个移动点光源的位置，但不调用 OpenGL。
+`Scene` 保存可编辑对象与派生世界矩阵，更新父子层级与灯光数据，但不调用 OpenGL。
+灯光是场景对象，不应把早期两个移动点光源的固定演示当成当前项目结构。
 
 ### GltfAnimatedModel
 
 `GltfAnimatedModel` 使用 tinygltf 读取 glTF 2.0 的 `POSITION`、`JOINTS_0`、
-`WEIGHTS_0`、索引、节点、Skin、逆绑定矩阵和第一个动画片段。每帧执行：
+`WEIGHTS_0`、索引、节点、Skin、逆绑定矩阵和动画片段。支持片段选择与切换渐变，
+但仍只读取一个蒙皮 Primitive。每帧执行：
 
 ```text
 按时间定位相邻关键帧
@@ -383,6 +389,10 @@ Bright texture A
 Visual Studio、命令行和直接运行 exe 时，当前工作目录可能不同。`findAssetPath` 会从工作目录和 exe 所在目录向上查找项目的 `assets/`，避免出现“文件明明存在但找不到”的问题。
 
 ## 当前边界
+
+项目打开/创建在编辑器协调：系统窗口返回原生 Unicode 路径，Project 验证或创建数据，
+有未保存修改时提示处理，宿主在退出当前循环后重新初始化项目。
+创建不覆盖已有目录，也不动态加载项目 C++；场景与描述文件的保存不是跨文件事务。
 
 模型、材质纹理、阴影资源、场景更新和多遍渲染已经分离，同源模型已经使用
 GPU Instancing、HDR/Bloom、Cook–Torrance PBR、天空盒和 split-sum IBL。

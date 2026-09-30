@@ -1,446 +1,246 @@
-# OpenGL-Practice 项目完整说明
+# Lancelot Engine 项目完整说明
 
-## 1. 项目定位
+[中文 README](../README.md) · [English README](../README.en.md) · [截图与复现](SCREENSHOTS.md)
 
-这是一个使用 C++ 和 OpenGL 3.3 Core Profile 编写的实时渲染练习项目。
+本文按当前代码的职责解释项目，而不是按旧的开发轮次排列。
+历史上的“渲染六阶段”和“架构四阶段”是两套计划，不能用同一个阶段编号表示整体完成度。
 
-项目从最基础的三角形开始，逐步加入摄像机、模型、阴影、实例化、HDR 后处理、PBR、IBL、glTF 骨骼动画和基础性能优化。目前它已经是一个具备现代实时渲染流程的小型教学渲染器，而不只是单个 OpenGL API 的练习。
+## 1. 当前定位与模块
 
-当前实际编译的文件是：
+项目是 Windows / C++20 / OpenGL 3.3 的教学型引擎与编辑器原型。
+编辑器入口为 `editor/src/EditorMain.cpp`；`src/main.cpp` 仅保留早期练习。
 
-```text
-editor/src/EditorMain.cpp → Project → EditorApplication → EngineApplication
+| 模块 | 负责什么 | 不负责什么 |
+| --- | --- | --- |
+| Project | 打开/新建项目，场景和资源引用读写 | 动态编译脚本、自动复制/打包外部资源 |
+| Scene | 对象 ID、局部 TRS、父子关系、组件设置与世界矩阵 | 直接提交 OpenGL 绘制 |
+| AssetLibrary | 多模型导入、路径引用与 GPU 资源缓存 | 文件移动追踪、自动热重载、全局 GUID 资产系统 |
+| RuntimeSession | Play 副本、脚本生命周期、暂停和单步 | 通用物理引擎、脚本崩溃隔离 |
+| SimulationRuntime | 按对象 ID 管理粒子、水、烟雾与蒙皮运行实例 | 持久化某一帧的模拟状态 |
+| Renderer | 阴影、颜色、透明、HDR 后处理与统计 | 推进粒子、流体或动画时间 |
+| EditorWorkspace / Panels | Docking、选择、Gizmo、参数、资源和历史记录 | 任意可插拔编辑器模块 |
+| LancelotPlayer | 无 ImGui 的独立运行宿主 | 项目编辑或运行变化回写 |
+
+引擎使用浅继承区分对象类别，使用组合保存设置。它不是完整 ECS。
+详细类型树和项目格式见 [引擎与项目](ENGINE_PROJECTS.md)，职责边界见 [架构说明](ARCHITECTURE.md)。
+
+## 2. 从项目到一帧画面
+
+```mermaid
+flowchart TD
+    Open["打开 .lancelot"] --> Read["读取 scene.json 与 assetRoot"]
+    Read --> Assets["按引用导入 / 缓存模型、材质和纹理"]
+    Assets --> Loop["宿主每帧采样输入"]
+    Loop --> Mode{"编辑还是运行？"}
+    Mode --> Edit["作者场景 / 编辑相机"]
+    Mode --> Play["运行副本 / C++ 脚本"]
+    Edit --> World["更新世界矩阵"]
+    Play --> World
+    World --> Sim["模拟与动画更新：暂停时不积分"]
+    Sim --> Render["Renderer 提交渲染 Pass"]
+    Render --> Present["Scene View 或 Player 呈现"]
+    Present --> Loop
 ```
 
-`src/main.cpp` 保留为早期三角形和变换练习记录，CMake 当前不会编译它。
+静态几何通常在导入时上传；每帧更新的主要是矩阵、uniform、实例数据或模拟缓冲。
+每帧仍会提交绘制命令，并不是调用一次 GPU 后就永久自动绘制同一场景。
+更新与绘制分离允许暂停后继续渲染，也允许对同一更新结果重复绘制。
 
-最新模块边界见 [架构说明](ARCHITECTURE.md)：编辑器面板、PlaySession 与输入分发位于 `editor/`，引擎位于 `include/` 和 `src/`。支持关闭编辑器构建；第二至第四阶段现已接入路径资源引用、数据组件、模拟/绘制分离、父子层级、历史记录与独立 Player。具体操作和仍未实现的扩展见 [编辑工作流](EDITOR_WORKFLOW.md)。
+## 3. 顶点、缓冲与变换
 
-## 2. 当前功能总览
-
-### 窗口和 OpenGL 初始化
-
-- GLFW 创建窗口和 OpenGL Context。
-- 请求 OpenGL 3.3 Core Profile。
-- GLAD 在 Context 创建后加载现代 OpenGL 函数。
-- 启用深度测试和可编程点大小。
-- 启动时输出 OpenGL 版本和显卡 Renderer。
-
-### GPU 几何数据
-
-- 使用 VAO 保存顶点属性布局。
-- 使用 VBO 保存模型、地面和调试四边形数据。
-- 模型顶点格式为：
+主静态模型使用交错顶点布局：
 
 ```text
-位置：3 个 float
-UV：2 个 float
-法线：3 个 float
-切线和 handedness：4 个 float
-总计：12 个 float/顶点
+location 0: position.xyz
+location 1: uv.xy
+location 2: normal.xyz
+location 3: tangent.xyz + handedness
+location 4–7: 实例 model matrix 的四列
 ```
 
-- 模型使用 VAO/VBO/EBO 索引绘制，地面拥有独立的 VAO/VBO。
-- 调试阴影图和所有屏幕后处理 Pass 共用一个全屏四边形。
+- VBO 保存顶点数据；EBO 保存顶点索引，不是哈希表。
+- VAO 记录如何从缓冲中读取属性及其布局，并关联索引缓冲。
+- 同一 Mesh 的多个实例可以共享几何，不必为每个顶点重建 VAO/VBO。
+- stride、offset、属性类型或绑定错误会造成几何错乱；布局必须与 Shader 输入一致。
+- UV 的两个分量表示纹理二维坐标；它们不是两张纹理，也不是世界 XYZ。
+- 纹理单元是 Shader 采样器绑定资源的槽位，不是一个像素的纹理层数。
 
-### 着色器
-
-项目中有几组 GLSL 程序：
-
-1. 主渲染程序：处理 Cook–Torrance PBR、纹理、法线、IBL 和阴影。
-2. 灯光标记程序：绘制黄色和蓝色的光源圆点。
-3. 深度程序：用于聚光灯二维阴影图和点光源立方体阴影图。
-4. 调试程序：按住 `F1` 时显示聚光灯深度图。
-5. 亮区提取程序：筛选 HDR 场景中亮度超过阈值的像素。
-6. 高斯模糊程序：在两个浮点纹理之间交替进行横向和纵向模糊。
-7. 最终合成程序：叠加 Bloom、执行 Tone Mapping、Gamma 校正和可选灰度。
-8. 程序化环境程序：生成包含高亮太阳的 HDR Environment Cubemap。
-9. Irradiance 程序：对环境进行半球卷积，生成漫反射 IBL。
-10. Prefilter 程序：按不同 roughness 预过滤环境镜面反射。
-11. BRDF Integration 程序：预计算 split-sum BRDF LUT。
-12. Skybox 程序：在 HDR 场景中绘制环境背景。
-
-所有程序都会检查 Shader 编译和 Program 链接错误，并将错误信息输出到终端。
-
-### 摄像机
-
-- 第一人称摄像机。
-- 鼠标控制 yaw 和 pitch。
-- `W/A/S/D` 控制移动。
-- 使用 `deltaTime`，移动速度不依赖帧率。
-- 鼠标俯仰角限制在 `-89°` 到 `89°`，避免摄像机翻转。
-- 使用 `glm::lookAt` 生成 View 矩阵。
-
-### 纹理和材质
-
-- 使用 `stb_image` 从文件加载 PNG 等图像。
-- OBJ 基础纹理通过 MTL 的 `map_Kd` 指定，并由 `MaterialLibrary` 统一管理。
-- 地面使用真实 Albedo、OpenGL Normal、Roughness 和 AO 贴图组。
-- MTL 的 `Kd` 颜色通过 `uMaterialColor` 传入片段着色器。
-- 最终反照率大致为：
+当前对象的模型矩阵关系：
 
 ```text
-纹理颜色 × 材质颜色
-```
-
-- 法线贴图目前使用一张程序中生成的 2×2 测试纹理。
-- 法线贴图通过 TBN 矩阵从切线空间转换到世界空间。
-- 模型加载时根据三角形边和 UV 差计算逐顶点切线，并保存 handedness。
-- 顶点着色器把切线变换到世界空间，片元着色器再重建 TBN。
-- Albedo 纹理按 sRGB 转换回线性空间后参与 PBR 计算。
-- Metallic、Roughness、AO 作为 PBR 参数控制材质响应。
-
-### 光照
-
-当前场景包含三类光照：
-
-#### 第一个点光源
-
-- 白色/暖色标记。
-- 围绕模型运动。
-- 使用 Cook–Torrance BRDF、反平方距离衰减和 PBR 镜面反射。
-- 支持点光源立方体阴影。
-
-#### 第二个点光源
-
-- 蓝色光源。
-- 从相反方向运动。
-- 使用 Cook–Torrance BRDF、反平方距离衰减和 PBR 镜面反射。
-- 当前不投射阴影。
-
-#### 摄像机聚光灯
-
-- 位置跟随摄像机。
-- 方向跟随摄像机视线。
-- 内锥角约为 `12.5°`。
-- 外锥角约为 `17.5°`。
-- 内外角之间使用平滑过渡。
-- 支持二维阴影贴图。
-
-### PBR 与 IBL
-
-直接光照使用 Cook–Torrance 微表面模型：
-
-- GGX/Trowbridge-Reitz 描述微表面法线分布。
-- Smith + Schlick-GGX 描述视线和光线的几何遮蔽。
-- Schlick Fresnel 描述反射率随观察角度的变化。
-- Metallic 在介电材质与金属材质之间变化。
-- Roughness 控制高光从锐利镜面到宽阔模糊反射。
-- 能量守恒会从漫反射中扣除已经进入镜面反射的能量。
-
-环境光使用 split-sum IBL。程序启动时加载等距柱状 `.hdr` 环境并转换成 Cubemap，然后预计算：
-
-```text
-Environment Cubemap
-├─ Irradiance Cubemap  → 漫反射环境光
-├─ Prefilter Cubemap   → 不同 roughness 的镜面环境反射
-└─ BRDF LUT            → NdotV / roughness 的积分结果
-```
-
-天空盒直接使用 HDR Environment Cubemap。由于这些资源只依赖环境，昂贵的积分
-只在启动时执行一次，正常帧只需要纹理查询。HDR 文件缺失时会自动回退到程序天空。
-
-### 阴影
-
-#### 聚光灯阴影
-
-每帧从聚光灯视角渲染一张深度纹理，然后在正常渲染时将当前片段投影到光源空间，比较当前深度和深度纹理中的最近深度。
-
-使用 3×3 PCF 采样平滑阴影边缘，并使用 bias 减少 Shadow Acne。
-
-#### 点光源阴影
-
-点光源向六个方向发光，因此使用深度立方体纹理：
-
-```text
-+X、-X、+Y、-Y、+Z、-Z
-```
-
-每帧渲染六个深度面，主渲染时使用 `samplerCube` 查询遮挡关系。目前只有第一个点光源启用了点光源阴影。
-
-### 模型加载
-
-- 使用 `tinyobjloader` 解析 Wavefront OBJ。
-- 读取顶点位置、UV、法线和材质编号。
-- 使用 `triangulate=true` 将多边形转换为三角形。
-- 按 position / UV / normal 组合键去重，并生成 EBO 索引。
-- 同一模型的不同材质区间分别绘制。
-
-### 场景实例和层级
-
-当前场景中有三个同源模型实例：
-
-- 中央根节点。
-- 左侧子节点。
-- 右侧子节点。
-
-子节点保存局部矩阵，世界矩阵通过父子矩阵相乘得到：
-
-```text
-WorldChild = WorldParent × LocalChild
-```
-
-三个实例共用同一份模型顶点数据、材质和纹理资源，但拥有不同的位移、旋转和缩放。
-这些世界矩阵每帧上传到 instance VBO，并占用顶点属性 location 4–7。设置
-`glVertexAttribDivisor(..., 1)` 后，GPU 会在实例之间切换矩阵，而不是在普通顶点之间切换。
-
-### glTF 骨骼动画和 Skinning
-
-项目使用 tinygltf 加载 `SimpleSkin.gltf`。它把动画分为两层：
-
-- CPU 根据当前时间采样关键帧，平移/缩放用线性插值，旋转用四元数 Slerp。
-- CPU 沿节点层级计算每根 Joint 的全局矩阵，再结合逆绑定矩阵生成 Bone Matrix。
-- GPU 顶点着色器读取每个顶点的 `JOINTS_0` 与 `WEIGHTS_0`，混合最多四根骨骼的影响。
-
-核心关系为：
-
-```text
-BoneMatrix = inverse(MeshGlobal) × JointGlobal × InverseBindMatrix
-SkinnedPosition = Σ(weight[i] × BoneMatrix[joint[i]] × LocalPosition)
-```
-
-因此骨骼动画不是每帧重写 VBO。静态顶点、关节编号和权重只上传一次；每帧只更新少量
-骨骼矩阵，GPU 再并行计算所有顶点的新位置。
-
-### 第二阶段：静态 glTF 场景、材质与动画控制
-
-`GltfScene` 遍历当前默认 Scene 的节点层级，分别上传每个三角形 Primitive，并保留其节点变换和材质。它加载 `.gltf`/`.glb`、嵌入或外部图像，使用 glTF 核心 Metallic-Roughness 通道约定：粗糙度取 G、金属度取 B、AO 取 R；Base Color/Emissive 贴图按 sRGB 转线性。OPAQUE、MASK、BLEND 分开处理，BLEND 按 Primitive 中心排序，绘制时关闭深度写入。面板允许加载用户路径并显示加载结果。Khronos `BoxTextured.glb` 是默认演示资产。
-
-`GltfAnimatedModel` 仍负责 SimpleSkin 蒙皮示例，现在读取所有动画片段；面板可以选择片段、暂停或改变速度。片段切换时用约 0.3 秒对当前姿态和新片段姿态做渐变，支持 LINEAR、STEP、CUBICSPLINE 采样。静态场景导入和蒙皮示例尚未统一成完整通用 glTF 运行时：复杂资产可能需要 Morph Target、多 Skin、多 UV、压缩扩展或材质扩展，当前不承诺全部支持。
-
-### 第三阶段：基础粒子系统
-
-`ParticleSystem` 使用固定容量的 CPU 粒子集合，更新年龄、速度、重力和位置；根据生命周期插值大小及透明度。Sparks、Smoke、Snow 是可切换预设。上传每粒子的位置、大小和颜色后，GPU 以一次实例化绘制生成面向摄像机的四边形。透明粒子按摄像机距离排序，深度测试保留、深度写入关闭。场景深度在绘制粒子前复制到只读深度纹理，片段着色器根据粒子与几何的深度差淡化交界，避免明显硬切。面板提供发射率、寿命、速度、重力、大小、软交界开关和存活粒子数。它是点精灵/烟雾/火花的教学基础，不等同于流体模拟或真实流体表面渲染。
-
-### 第四阶段：Transform Feedback GPU 粒子
-
-`GpuParticleSystem` 与 CPU `ParticleSystem` 并存。前者创建两份同布局 GPU Buffer：更新着色器读取当前位置、速度、年龄、寿命和随机种子；OpenGL 3.3 的 Transform Feedback 把新的状态直接写到另一份 Buffer，下一帧交换输入/输出。CPU 只设置 `deltaTime`、发射率、重力等 uniform，不逐粒子修改 VBO 或读回位置。Billboard 渲染从当前粒子 Buffer 读取实例属性，最多 32768 槽位。面板支持暂停、重置、预设、容量、发射率、寿命、重力与尺寸。大量特效粒子当前使用加法混合，无排序；这不是复杂半透明烟雾的正确 Alpha 合成。其更新路径符合 [OpenGL 3.3 Transform Feedback 规范](https://registry.khronos.org/OpenGL/specs/gl/glspec33.core.pdf)，无需 Compute Shader。
-
-### 第五阶段：2D 烟雾流体
-
-`Fluid2D` 使用 192×192 离屏纹理保存 Velocity、Density、Pressure、Divergence 与 Obstacle；速度和密度各有 Ping-Pong 缓冲。一次固定步更新依次执行半拉格朗日平流、自动/鼠标注入、速度散度、Jacobi 压力迭代和压力梯度扣除，再把密度映射到画布。障碍纹理包含边界与可选中心圆盘；右键能涂抹额外障碍，求解和显示都会采样它。可停靠的 `2D Smoke Lab` 可切换五种场，暂停、重置和调参。实现参考 [GPU Gems: Fast Fluid Dynamics Simulation on the GPU](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu)，采用简化边界处理与固定分辨率，尚无涡量约束、温度/浮力或体积渲染。
-
-### 第六阶段：粒子流体、连续表面与水面材质
-
-`FluidSystem` 是独立于火花/烟雾粒子的三维教学原型。它用 1/120 秒固定步长更新最多 256 个水粒子；密度使用紧支撑核函数，压力取当前密度超出初始参考密度的部分，另加黏性、重力和长方体边界反弹。这是受 [Müller、Charypar、Gross 的 SPH 流体工作](https://diglib.eg.org/items/fb9edf26-94b0-4302-8cfc-52632841cae7)启发的简化弱可压缩模型，包含稳定性钳制，不是完整 Navier–Stokes 求解器。
-
-显示流程：每粒子只对附近体素累积紧支撑标量核及其梯度；`marching tetrahedra` 从等值面生成三角形，梯度提供水面法线。不透明场景先复制到独立 HDR 颜色纹理与深度纹理，水面 Pass 再采样它们，不会一边写场景纹理一边读同一纹理。法线偏移屏幕坐标形成近似折射；深度差用于光吸收和浅水边缘；Fresnel 权重混合环境 Cubemap 反射。水面最终写不透明深度，以正确遮挡后续粒子。
-
-从编辑器的 `Window` 菜单打开 `3D Water Lab`：`Focus water` 聚焦水体，`Surface / Particles / Wireframe` 比较模拟点、网格与拓扑；暂停时可 `Step once`。`Water / Refraction / Fresnel / Normals` 分离观察着色组成，多个材质滑块可实时调节。面板显示粒子、三角形、模拟和网格重建耗时；`Surface rebuilds / second` 可降低 Debug 模式下的 CPU 开销，也可直接暂停 2D 烟雾做单独对比。默认 125 粒子，水体默认隐藏。这里选择了原第六阶段的 SPH 粒子水与水面渲染方向；体积烟火、真实光线追踪折射、表面张力、任意网格障碍碰撞和 GPU 求解仍未实现。
-
-### 视锥剔除和资源缓存
-
-- OBJ 和 glTF 模型加载时计算局部包围球。
-- 每帧从 ViewProjection 矩阵提取六个视锥平面。
-- 包围球完全位于任一平面外侧时，该实例不会写入本帧 instance VBO。
-- `TextureCache` 以规范化文件路径和翻转方式为键，同一图片只创建一个 OpenGL 纹理对象。
-- `MaterialLibrary` 与 `PbrMaterial` 引用缓存纹理，不再重复拥有和销毁相同资源。
-
-## 3. 每帧渲染流程
-
-每一帧大致执行以下步骤：
-
-```text
-1. 读取键盘和鼠标输入
-2. 更新摄像机位置和方向
-3. 计算场景节点的世界矩阵
-4. 采样 glTF 动画并更新骨骼矩阵
-5. 测试实例包围球，只上传视锥内的实例矩阵
-6. 渲染聚光灯二维深度图
-7. 从第一个点光源的六个方向渲染深度立方体
-8. 绑定场景离屏 Framebuffer并清空颜色/深度
-9. 使用实例化 Draw Call 绘制可见 OBJ 实例
-10. 使用 Cook–Torrance 计算直接光、阴影和 IBL
-11. 绘制 PBR 地面、静态 glTF 的不透明 Primitive 与蒙皮示例
-12. 绘制 HDR 天空盒，再绘制透明 glTF Primitive
-13. 可选绘制连续流体等值面，或切换为原始点/线框调试
-14. 复制场景深度，绘制 CPU 软粒子与 GPU 实例化粒子
-15. 如果按住 F1，覆盖显示聚光灯深度图
-16. 提取 HDR 亮区并执行十次 Ping-Pong 高斯模糊
-17. 合成 Bloom，执行 Tone Mapping、Gamma 校正和可选灰度
-18. 绘制调试面板，交换前后缓冲区
-```
-
-## 4. 主要矩阵关系
-
-模型顶点最终经过以下变换：
-
-```text
+LocalTRS = T × Rz × Ry × Rx × S
+Model = ParentWorld × LocalTRS × ImportTransform
 ClipPosition = Projection × View × Model × LocalPosition
 ```
 
-其中：
+ImportTransform 处理模型导入时的居中与归一化，编辑 TRS 控制对象摆放。
+Gizmo 使用对象的编辑坐标系；并非已经支持任意自定义 Pivot 系统。
+父节点下的世界编辑会转换回局部值；无法用 TRS 表示的剪切会被拒绝。
 
-- `Model`：模型在世界中的位置、旋转和缩放。
-- `View`：摄像机的位置和朝向。
-- `Projection`：透视投影参数。
-- `Projection × View × Model`：传给顶点着色器的变换结果。
+对于非均匀缩放，世界法线应使用线性变换部分的逆转置：
 
-法线不能直接使用普通 Model 矩阵变换，而是使用：
+$$
+N_{world}=\operatorname{normalize}\left((M_{3\times3}^{-1})^T N_{local}\right)
+$$
+
+法线随几何变换保持垂直关系，不是先移动法线再据此重建物体。
+法线贴图通过 TBN 修改像素的光照方向，不改变网格轮廓。
+
+## 4. PBR、环境光与后处理
+
+![金属、低粗糙度的模型与 Inspector 材质覆盖](images/PBR_Metallic_Smooth.png)
+
+![非金属、高粗糙度的模型与 Inspector 材质覆盖](images/PBR_Dielectric_Rough.png)
+
+截图分别为 `Metallic=1, Roughness=0.05` 和 `Metallic=0, Roughness=1`。
+这里同时改变了两个变量；单变量实验方法见 [截图说明](SCREENSHOTS.md)。
+
+直接光使用 Cook–Torrance 微表面模型，概念式为：
+
+$$
+f_r = k_D\frac{c}{\pi}
+    + \frac{D_{GGX}\,G_{Smith}\,F_{Schlick}}
+    {4(N\cdot V)(N\cdot L)}
+$$
+
+Shader 会对点积和分母做数值保护。Metallic 影响漫反射/镜面响应，
+Roughness 控制微表面分布与环境预过滤层级，不能简单等同于“亮度”。
+
+```mermaid
+flowchart LR
+    HDR["HDR 环境 / 程序天空"] --> Cube["Environment Cubemap"]
+    Cube --> Irr["Irradiance：漫反射 IBL"]
+    Cube --> Pre["Prefilter mip：不同粗糙度"]
+    LUT["BRDF LUT：NdotV / roughness"] --> Spec["镜面 IBL"]
+    Pre --> Spec
+    Cube --> Sky["天空盒"]
+    Irr --> PBR["PBR 最终光照"]
+    Spec --> PBR
+```
+
+环境预计算在初始化时执行，正常帧进行纹理采样。
+地面使用外部 Albedo / Normal / Roughness / AO 贴图组；
+OBJ 路径有材质颜色、颜色贴图及标量覆盖，并保留演示法线回退。
+静态 glTF 则读取核心 PBR 贴图与参数，不能据此宣称所有格式拥有同等材质支持。
+
+渲染链路概览：
 
 ```text
-NormalMatrix = transpose(inverse(Model))
+阴影深度 Pass
+→ 不透明模型 / 平台 / 静态 glTF / 蒙皮
+→ PBR 直接光 + IBL、天空盒、透明 Primitive
+→ 水面或调试几何、烟雾与特效粒子
+→ HDR 亮区提取、Ping-Pong 高斯模糊
+→ Bloom 合成、曝光 Tone Mapping、Gamma、可选灰度
+→ Scene View 纹理 / Player 窗口
 ```
 
-这是为了正确处理非均匀缩放。
+水面折射与软粒子采样独立的场景颜色/深度副本，避免同一附件同时读写。
+主 OBJ/平台路径支持最多 8 个点光源和 4 个聚光灯，但每类只有第一个生成阴影；
+glTF、蒙皮和水的光照路径仍有差异，蒙皮尚无完整阴影支持。
+视锥剔除使用包围球，不是遮挡剔除。Profiler 的绘制统计包含多 Pass 重复提交，
+不包含编辑器自身绘制；截图 FPS 不能用来推断一般性能。
 
-## 5. 项目文件结构
+## 5. 资产与动画
+
+模型导入保留多材质批次，路径引用允许多个模型同时驻留。
+OBJ 使用 tinyobjloader，glTF / GLB 使用 tinygltf，其余已启用的模型格式使用 Assimp。
+Assimp 静态导入烘焙节点变换；不会把每个节点自动拆成可独立编辑的对象。
+FBX 等骨骼资产当前显示静态姿态，动画请使用支持的 glTF / GLB 蒙皮路径。
+完整格式表、媒体编码边界见 [资产格式](ASSET_FORMATS.md)。
+
+静态 glTF 支持三角形 Primitive、多个节点/材质、Base Color、Metallic/Roughness、
+Normal、Occlusion、Emissive，以及 OPAQUE / MASK / BLEND 和双面材质。
+Metallic-Roughness 图的 G 为 Roughness、B 为 Metallic；AO 取 R。
+复杂扩展、压缩数据、Morph Target 和多 Skin 不属于完整支持范围。
+
+蒙皮路径在 CPU 上采样动画和更新关节层级，在 GPU 上混合顶点影响：
 
 ```text
-OpenGL-Practice/
-├─ assets/
-│  ├─ cube.obj              # OBJ 模型
-│  ├─ cube.mtl              # 模型材质和 map_Kd
-│  └─ *.png                 # 测试纹理
-├─ src/
-│  ├─ EditorMain.cpp        # 独立项目入口
-│  ├─ EngineApplication.cpp # 引擎会话与资源生命周期
-│  ├─ Project.cpp           # 项目和场景读写
-│  ├─ Renderer.cpp          # 阴影、PBR、天空盒和后处理 Pass
-│  ├─ EnvironmentIBL.cpp    # 环境 Cubemap 与 IBL 预计算
-│  ├─ Mesh.cpp / Model.cpp  # GPU 几何与 OBJ 数据
-│  ├─ Material.cpp          # MTL 纹理资源
-│  ├─ ShadowMap.cpp         # 二维和 Cubemap 阴影资源
-│  ├─ RenderTarget.cpp      # HDR 场景 framebuffer
-│  ├─ BlurBuffer.cpp        # Bloom Ping-Pong framebuffer
-│  └─ main.cpp              # 早期练习代码
-├─ include/                 # 各模块公开接口
-├─ shaders/                 # PBR、IBL、阴影和后处理 GLSL
-├─ docs/
-│  └─ PROJECT_GUIDE.md      # 本文档
-├─ CMakeLists.txt           # 依赖和构建配置
-├─ README.md                # 项目入口说明
-└─ build/                   # 本地生成目录，不提交到 Git
+BoneMatrix = inverse(MeshGlobal) × JointGlobal × InverseBindMatrix
+SkinnedPosition = Σ weight[i] × BoneMatrix[joint[i]] × LocalPosition
 ```
 
-## 6. 使用的依赖
+支持片段切换渐变和 LINEAR / STEP / CUBICSPLINE 采样，
+但仍只处理一个蒙皮 Primitive，不是任意复杂角色的通用动画运行时。
+静态顶点不会因为骨骼动画而每帧由 CPU 重写全部 VBO。
 
-| 依赖 | 用途 |
-|---|---|
-| GLFW 3.4 | 窗口、输入和 OpenGL Context |
-| GLAD 2.0.6 | 加载 OpenGL 函数 |
-| GLM 1.0.3 | 向量、矩阵和摄像机数学 |
-| stb_image | PNG/JPG 等图像加载 |
-| tinyobjloader | OBJ 模型解析 |
-| tinygltf 2.9.7 | glTF 2.0、Skin 和 Animation 解析 |
+## 6. 三种烟雾/流体概念
 
-依赖由 CMake `FetchContent` 管理，不需要手动复制到项目目录。
+| 系统 | 保存的数据 | 显示方式 | 主要限制 |
+| --- | --- | --- | --- |
+| CPU / GPU 特效粒子 | 位置、速度、年龄等粒子状态 | 面向相机的 Billboard | CPU 局部排序；GPU 加法混合 |
+| 二维 Fluid2D | 速度、密度、压力、散度、障碍纹理 | 实验画布和可变换烟雾平面 | 固定 192×192，非三维体积 |
+| 三维 FluidSystem | SPH 水粒子、标量场、表面网格 | 连续水面 / 点 / 线框 | 最多 256 粒子，简化物理与局部容器边界 |
 
-首次配置时还会下载测试 PNG 到 `assets/`。
+### 粒子
 
-## 7. 环境要求
+![CPU 粒子 Smoke 预设](images/Particle_System_Demo.png)
 
-- Windows
-- Visual Studio，包含 MSVC、Windows SDK 和 CMake 工具
-- 支持 OpenGL 3.3 的显卡驱动
-- 首次配置需要网络
+CPU 系统支持 Sparks / Smoke / Snow，最多 4096 粒子；
+更新生命周期、速度和重力，实例化 Billboard 绘制，支持深度排序与软交界。
+GPU 系统用 Transform Feedback 更新两份交换角色的 Buffer，默认 8192 槽位、
+最多 32768；无需 Compute Shader，但不进行透明粒子排序。
 
-当前机器已验证运行环境：
+每个发射器有独立参数与运行状态。粒子在局部空间模拟，变换发射器会影响已有粒子，
+局部重力也随旋转变化；复制配置会创建新的模拟状态，不复制现存粒子。
+
+### 二维烟雾
 
 ```text
-OpenGL version: 3.3
-Renderer: Intel(R) UHD Graphics
+速度 / 密度平流 → 注入 → 散度
+→ Jacobi 压力求解 → 减去压力梯度 → 显示密度
 ```
 
-## 8. 构建和运行
+2D Smoke Lab 支持注入、绘制障碍、暂停、重置及中间场查看。
+这是简化的平流/压力投影实验，尚无温度、浮力、涡量约束或体积光线步进。
 
-在 Visual Studio Developer Command Prompt 中执行：
+### 三维水体
 
-```powershell
-cmake -S . -B build
-cmake --build build --config Debug
-.\build\Debug\OpenGLPractice.exe
-```
-
-也可以用 Visual Studio 打开 CMake 项目，构建并运行 `OpenGLPractice`。
-
-`build/` 是生成目录，已经被 `.gitignore` 忽略。如果构建配置损坏，可以删除本地 `build/` 后重新执行上面的命令。
-
-## 9. 操作方式
-
-| 操作 | 功能 |
-|---|---|
-| 场景视图内按住右键并移动鼠标 | 旋转摄像机视角 |
-| `W` | 向前移动 |
-| `S` | 向后移动 |
-| `A` | 向左移动 |
-| `D` | 向右移动 |
-| `ESC` | 退出程序 |
-| 按住 `F1` | 显示聚光灯深度图 |
-| 按住 `F2` | 显示灰度后处理结果 |
-| `F3` | 开启或关闭 Bloom |
-| `F4` | 切换编辑器鼠标模式与全窗口自由摄像机模式 |
-| `↑` / `↓` | 调整 HDR 曝光值（0.1–5.0） |
-| `Z` / `X` | 降低/提高模型 Metallic（0–1） |
-| `C` / `V` | 降低/提高模型 Roughness（0.05–1） |
-
-## 10. 当前限制
-
-- `editor/src/EditorMain.cpp` 打开项目，`EditorApplication.cpp` 组织主循环；`LancelotEditor` 与无 ImGui 依赖的 `LancelotEngine` 分开编译，示例内容来自项目文件。
-- 第二个蓝色点光源目前不投射阴影。
-- 法线贴图仍是很小的程序内测试纹理，不是从外部 PNG 加载。
-- 点光源阴影每帧渲染六个面，性能开销较大。
-- 阴影贴图分辨率、投影范围和窗口宽高目前部分使用固定值。
-- 场景对象现支持递归父子层级；尚无空间索引或完整 ECS。
-- 编辑器仍是教学原型，但所有场景对象（包括平台、水、烟雾）均可编辑，已有父子层级、子树复制/删除、撤销/重做和场景持久化；未实现完整 ECS。
-- 当前只对共享同一 Mesh 和材质分段的模型使用 GPU Instancing。
-- OBJ 模型的 Metallic、Roughness 和 AO 仍是标量参数；真实 PBR 贴图组当前应用于地面。
-- 静态 glTF 场景已覆盖核心 PBR 材质，但目前只支持基础三角形网格和第一套 UV；不处理 Draco/Meshopt、Morph Target、材质扩展和复杂纹理变换。静态 glTF 不驱动 Skin 动画。
-- 蒙皮演示仍只读取第一个蒙皮网格 Primitive；动画片段可切换并渐变，但不是多片段权重叠加混合。
-- CPU 特效粒子与 Transform Feedback GPU 特效粒子是两条独立实现；GPU 粒子采用加法混合，未做透明排序。2D 烟雾模拟只处理简化平流和压力投影，没有涡量约束、温度或浮力。
-- 独立的三维水体原型已有简化 SPH、边界碰撞、等值面网格和屏幕空间近似折射；但尚未实现表面张力、复杂障碍碰撞、物理折射及 GPU 计算，默认隐藏。
-- 蒙皮示例当前不写入两类阴影贴图，因此自身暂不投射动态阴影。
-- 视锥剔除使用包围球，并以摄像机视锥筛选共享实例；尚未加入遮挡剔除和空间索引。
-
-Dear ImGui docking 工作区默认是左侧 `Hierarchy`、中央 `Scene View`、右侧 `Inspector`，底部 `Resource Browser / Output / Profiler / 2D Smoke Lab`。面板可拖动、停靠、关闭和重开，布局保存在本机。场景先写入离屏纹理，再在 Scene View 上叠加 ImGuizmo 工具。点击静态模型时先做包围球粗检测，再在导入模型坐标中做射线/三角形求交；射线方向变换后不归一化，以保留世界距离并正确比较非均匀缩放实例。蒙皮演示暂用绑定姿势包围球。
-
-`SceneObject` 是可克隆的多态基类，保存运行期稳定 ID、名称、类型、可见性和 TRS；模型、平台、模拟对象、灯光、相机和环境使用各自的派生类。资源导入矩阵负责居中与尺寸归一化，编辑矩阵按 `T * Rz * Ry * Rx * S` 组合，最终模型矩阵为 `parentWorld * localTRS * import`。点击对象或目录后按 Q 移动、W 旋转、E 缩放；工具与 Inspector 数值互相同步。单轴缩放使用局部轴；移动和旋转可切换世界/局部模式，并设置吸附。Ctrl+D 复制，Delete 删除实例；右键菜单和按钮提供相同操作。复制共享几何资源但具有独立变换，目录修改不会删除磁盘资源。Ctrl+S 将对象变换和组件参数写入当前项目场景；模拟的动态粒子位置和流体纹理不持久化。
-
-Resource Browser 是独立可停靠窗口，支持目录进入/返回/根目录、文件名筛选、路径显示、glTF 加载及添加已加载模型的实例。当前多个 OBJ/glTF 可按路径同时驻留与缓存，导入新增对象，绑定只修改选中对象；蒙皮对象独立控制动画。右键拖动 Scene View + WASD 用于相机导航，此时 W 不切换 Gizmo；F 聚焦选中实例，F4 切换旧式全窗口自由摄像机。Profiler 统计不包含编辑器自身绘制。OBJ 阴影 Pass 保留全部可见实例，颜色 Pass 才使用摄像机视锥剔除。蒙皮和静态 glTF 沿用其原有专用绘制路径。
-
-## 11. 推荐学习路线
-
-粒子发射器也属于 `SceneObject`：数据组件只保存参数，SimulationRuntime 以稳定 ID 管理独立 CPU 粒子池或 GPU Transform Feedback 缓冲区。目录复制产生新 ID 与参数副本，下次更新创建空的模拟状态；目录删除后 SimulationRuntime 回收对应运行时资源。粒子模拟以局部原点为发射源，CPU 绘制前变换位置，GPU 顶点着色器使用 `uEmitterTransform`，因此移动不需要重置或回读 GPU 粒子。旋转也作用于局部重力；粒子片仍保持 Billboard 朝向。场景原点标记用于选择发射器，而不是把每个动态粒子当成独立可编辑对象。
-
-建议接下来按以下顺序继续：
-
-1. 完整导入 glTF 2.0 场景和标准 PBR 材质/纹理。
-2. 加入多个动画片段、动画混合和蒙皮阴影 Pass。
-3. 使用 GPU Timer、RenderDoc 等工具定位真实性能瓶颈。
-4. 扩展为 ECS、异步资源加载和场景资源系统。
-
-## 12. 学习阶段定位
-
-当前项目已经完成 OpenGL 基础 API、传统光照、材质、阴影和基础模型加载，处于：
+![编辑器中选中的 SPH 水对象与专用面板](images/Engine_Editor_Overview.png)
 
 ```text
-OpenGL 基础
-        ↓
-传统实时光照
-        ↓
-模型/材质/阴影
-        ↓
-基础场景结构
-        ↓
-GPU Instancing
-        ↓
-离屏 Framebuffer / 基础后处理
-        ↓
-HDR / Tone Mapping / Bloom
-        ↓
-PBR / IBL 和现代材质流程
-        ↓
-真实 HDR / PBR 贴图资产管线
-        ↓
-glTF / 骨骼动画 / 视锥剔除 / 纹理缓存
-        ↓
-静态 glTF 多材质 / CPU 粒子 / 调试 UI
-        ↓
-Transform Feedback GPU 粒子 / 2D 烟雾流体  ← 第四、五阶段已实现
-        ↓
-三维 SPH / 水面重建 / 近似折射与反射  ← 第六阶段选定方向
-        ↓
-更完整的资产管线 / 编辑器 / GPU 流体  ← 后续扩展
+粒子邻域 → 密度 / 压力 → 压力力 / 黏性 / 重力 / 容器边界
+→ 固定步更新 → 三维标量场 → marching tetrahedra → 连续表面
+→ 屏幕空间折射 / 吸收 / Fresnel 环境反射 / 边缘泡沫近似
 ```
 
-这套路线的第四、五阶段已做出可交互原型，但不等于生产级引擎：GPU 粒子仍是加法混合特效，二维流体的边界与物理模型经过简化，复杂资产和完整编辑器仍需继续建设。当前重点是理解并验证 CPU、GPU 与离屏纹理之间的数据流。
+Water Lab 提供倒水、Splash、暂停、单步、网格重建频率与材质控制。
+默认设置为 125 粒子，按实例可见性与暂停设置决定模拟；
+不要假设用户保存后的场景与默认 Sandbox 开关相同。
+水盆边界随对象变换，但尚不与任意模型/平台进行物理碰撞。
+折射只能采样屏幕已有内容，不是光线追踪折射；没有表面张力、GPU SPH 或三维烟火。
+
+## 7. 编辑、保存与运行
+
+新建/打开项目使用系统文件与目录窗口，步骤见 [项目说明](ENGINE_PROJECTS.md)。
+所有场景类别纳入层级与属性编辑，粒子是“发射器对象”，不是逐粒子独立编辑。
+Q / W / E、层级、复制删除与 64 步历史记录见 [编辑工作流](EDITOR_WORKFLOW.md)。
+
+Play 深复制作者场景，运行脚本和模拟；Pause 保持渲染、停止更新；
+Step 推进 1/60 秒并保持暂停；Stop 丢弃副本并还原编辑相机。
+绑定编译式 C++ 脚本的方法见 [运行模式](PLAY_MODE.md)。
+
+Ctrl+S 保存作者数据与资源引用，保留 .bak；每个文件单独替换，
+不是描述文件与场景文件的跨文件事务。模拟点、烟雾纹理、障碍笔刷和时间不保存。
+资源不自动复制，删除对象不删除磁盘资产，脚本与资源没有热重载。
+
+## 8. 构建、检查与下一步学习
+
+构建命令、环境要求与测试入口统一见 [README 快速开始](../README.md#快速开始)。
+常见“文件存在但找不到”应检查实际项目、assetRoot、相对路径和依赖文件，
+而不是把所有项目的资源都混放到引擎目录。
+
+建议用当前项目按以下顺序做可验证的小实验：
+
+1. VAO/VBO/EBO 与顶点属性：对应 Mesh 布局，观察 stride / offset 的关系。
+2. TRS、父子矩阵、相机与法线：用 Gizmo 和 Inspector 对照世界/局部坐标。
+3. PBR / IBL：一次只改 Metallic 或 Roughness，再单独改变环境与曝光。
+4. 阴影与 HDR：查看深度图，关闭 Bloom 对比，分清光照与后处理。
+5. CPU 与 GPU 粒子：理解局部模拟、生命周期、透明混合和双缓冲。
+6. 二维流体：逐个查看速度、压力、散度和障碍，不只观察最终烟雾。
+7. SPH 与水面：切换点/线框/表面，区分模拟、表面重建与材质显示。
+8. 引擎工程：阅读项目读写、资源缓存、更新/绘制边界与运行副本。
+
+后续优先统一资产与光照路径、完善诊断、蒙皮阴影和资源工作流，
+再扩展 GPU 流体、体积效果、自动打包与更通用的编辑器。

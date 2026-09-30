@@ -1,20 +1,51 @@
-# 第二、三、四阶段：编辑器工作流
+# 编辑器工作流
 
 这是当前可操作的版本，不是完整 Unity/Unreal 功能清单。
+
+[中文 README](../README.md) · [English README](../README.en.md) · [截图与复现](SCREENSHOTS.md)
+
+![层级、场景视图、属性、水体、资源和性能面板](images/Engine_Editor_Overview.png)
+
+## 项目与工作区
+
+- 文件 → 新建项目…：输入名称，通过系统目录窗口选择父目录，创建并打开基础场景。
+- 文件 → 打开项目…：从 Windows 文件窗口选择 `.lancelot`，无需手填路径。
+- 已有同名目录不会覆盖；有未保存修改时可保存、放弃或取消切换。
+- 运行时需先 Stop 才能创建、切换或保存项目；新建后取消切换会保留新项目文件。
+- Window 菜单重开已关闭面板，Reset workspace layout 恢复默认停靠。
+- 语言 / Language 切换中文或英文；布局与语言偏好保存到本机，不属于场景数据。
+- 当前布局文件为 `%LOCALAPPDATA%/OpenGLPractice/editor_layout_v2.ini`。
+
+Q / W / E 分别是移动、旋转、缩放；F 聚焦选中对象，右键拖动 + WASD 导航相机。
+对象变换可在 Gizmo 和 Inspector 中编辑；单轴缩放使用局部轴，移动/旋转可切换局部/世界轴。
+文本输入和右键导航期间不触发对象工具快捷键，运行时编辑工具禁用。
 
 ## 多模型资源
 
 1. 在 Resource Browser 选择文件，或输入相对项目 assetRoot / 绝对路径。
-2. Import model 接受 OBJ、glTF、GLB，新建对象，不替换其他模型。
+2. 导入 / 预览（Import / Preview）按类型分流；模型创建新对象，不替换其他模型。
+   支持 OBJ、glTF/GLB 与 FBX、DAE、3DS、PLY、STL、OFF、X、DXF、LWO/LWS 静态导入。
 3. Import animated skin 接入当前加载器支持的蒙皮 glTF/GLB。
 4. 可拖文件到 Scene View 新建对象；拖到 Inspector 的资源按钮绑定选中模型。
-5. Bind selected model 只改选中对象；OBJ 对象绑定 OBJ，glTF/蒙皮对象绑定对应 glTF/GLB。
+5. Bind selected model 只改选中对象；通用静态类别支持已启用的静态格式重新绑定，
+   glTF/蒙皮类别仍使用相应 glTF/GLB 路径，失败保留原引用。
 6. Ctrl+S 保存引用。资产源文件不自动复制；分发项目时请把外部资源和依赖纹理一起放好。
 
 同一路径的 OBJ/静态 glTF 复用缓存。OBJ 材质可勾选 Override material，再独立调整
 Metallic / Roughness。蒙皮对象的片段、播放开关、速度独立保存。
 导入失败不替换原对象；Output/资源面板显示原因，修复文件后再次导入可重试。
 已有缓存的文件不会自动热重载。
+
+图片、音频、视频进入独立 Asset Preview；音视频依赖系统解码器，播放控制不随场景 Pause。
+FBX 骨骼动画当前不播放，GIF 图片预览只显示首帧。完整范围见 [资产格式](ASSET_FORMATS.md)。
+PBR 参数对比与单变量实验见 [截图说明](SCREENSHOTS.md#2-金属与非金属对比)。
+
+## 粒子与流体对象
+
+在层级选择发射器、水或烟雾后，Inspector 编辑对应实例的配置；多个实例状态独立。
+发射器模拟采用局部空间，已有粒子随对象变换；复制创建新的模拟，不复制已经生成的粒子。
+CPU Smoke 粒子、2D Smoke Lab 流体和三维 SPH 水是不同系统，详见 [项目说明](PROJECT_GUIDE.md)。
+水面 Geometry 可选 Surface / Particles / Wireframe；修改透明/折射参数并不增加模型碰撞。
 
 ## 父子层级
 
@@ -77,8 +108,12 @@ WASD 控制角色，Esc 暂停/恢复，关闭窗口退出。不带参数打开 
 - RuntimeSessionTests：无编辑器运行生命周期、父节点缩放下的世界移动与单步暂停。
 - AssetsRuntimeTests：隐藏的真实 GL Context，多资产共存/缓存/绑定、
   导入失败不破坏场景、实际帧缓冲有内容、重复绘制与暂停不推进模拟、独立呈现无 GL 错误。
-- 保留 SceneEditorTests、PlaySessionTests、ProjectTests、EngineBoundaryTests。
+- ProjectCreationTests：中文项目创建、同名目录/非法名称保护、保存重开与真实 GL 渲染。
+- AssetFormatsTests / MediaPreviewTests：多格式模型与系统音视频加载和实际运行。
+- EditorLocaleTests：语言映射与稳定界面标识；保留 SceneEditorTests、PlaySessionTests、ProjectTests、EngineBoundaryTests。
 
-编辑器配置 7 项测试，纯引擎配置 4 项测试。
+当前编辑器配置定义 11 项测试，纯引擎配置定义 6 项测试。
+2026-09-30 的最近完整 Debug 验证为 11 项通过；原有 7/4 项结果属于扩展前的历史检查。
+系统项目文件窗口和新建目录窗口已实际打开并验证取消返回。
 桌面已验证 Play/WASD/Pause/Step/Stop、位置编辑撤销/重做及目录拖放父节点，未保存测试修改。
 资源窗口已检查导入与绑定入口；资产拖放/重新绑定的完整鼠标流程仍建议继续回归，自动化 GPU 测试不替代全部 UI 验收。
